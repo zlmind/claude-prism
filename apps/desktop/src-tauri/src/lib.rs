@@ -10,13 +10,6 @@ use std::path::Path;
 use tauri_plugin_fs::FsExt;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
-/// Entry point for the `--tectonic-compile` subprocess mode.
-/// Runs tectonic compilation in an isolated process so that C-level global state
-/// (font cache, etc.) is cleaned up on exit, preventing assertion failures on retry.
-pub fn tectonic_compile_subprocess(work_dir: &Path, main_file: &str) -> Result<(), String> {
-    latex::compile_with_tectonic(work_dir, main_file)
-}
-
 // --- External editor detection & opening ---
 
 #[derive(serde::Serialize, Clone)]

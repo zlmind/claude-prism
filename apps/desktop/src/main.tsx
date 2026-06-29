@@ -35,9 +35,12 @@ document.addEventListener("visibilitychange", () => {
 });
 
 // Tauri-native focus event — more reliable than visibilitychange on macOS.
-listen("window-focus-restored", () => {
-  dispatchVisibilityRestored("window-focus-restored");
-});
+// Only register when running in Tauri context
+if (typeof window !== 'undefined' && '__TAURI__' in window) {
+  listen("window-focus-restored", () => {
+    dispatchVisibilityRestored("window-focus-restored");
+  });
+}
 
 // Platform-specific titlebar height adjustments
 if (navigator.userAgent.includes("Windows")) {
@@ -60,7 +63,10 @@ function hideLoadingScreen() {
     loading.style.opacity = "0";
     setTimeout(() => loading.remove(), 300);
   }
-  getCurrentWindow().show();
+  // Only call Tauri APIs if running in Tauri context
+  if (typeof window !== 'undefined' && '__TAURI__' in window) {
+    getCurrentWindow().show();
+  }
 }
 
 async function bootstrap() {

@@ -356,84 +356,6 @@ fn lower_thread_priority() {
     }
 }
 
-// --- Tectonic Compilation ---
-
-pub(crate) fn compile_with_tectonic(work_dir: &Path, main_file: &str) -> Result<(), String> {
-    use tectonic::config::PersistentConfig;
-    use tectonic::driver::{OutputFormat, PassSetting, ProcessingSessionBuilder};
-    use tectonic::status::NoopStatusBackend;
-
-    let mut status = NoopStatusBackend {};
-
-    let config = PersistentConfig::open(false)
-        .map_err(|e| format!("Failed to open tectonic config: {}", e))?;
-
-    let bundle = config.default_bundle(false, &mut status).map_err(|e| {
-        format!(
-            "Failed to load tectonic bundle (check network connection): {}",
-            e
-        )
-    })?;
-
-    let format_cache = config
-        .format_cache_path()
-        .map_err(|e| format!("Failed to get format cache path: {}", e))?;
-
-    let mut builder = ProcessingSessionBuilder::default();
-    builder
-        .bundle(bundle)
-        .primary_input_path(work_dir.join(main_file))
-        .tex_input_name(main_file)
-        .filesystem_root(work_dir)
-        .output_dir(work_dir)
-        .format_name("latex")
-        .format_cache_path(format_cache)
-        .output_format(OutputFormat::Pdf)
-        .pass(PassSetting::Default)
-        .synctex(true)
-        .keep_intermediates(true)
-        .keep_logs(true);
-
-    let mut session = builder
-        .create(&mut status)
-        .map_err(|e| format!("Failed to create tectonic session: {}", e))?;
-
-    session.run(&mut status).map_err(|e| format!("{}", e))?;
-
-    Ok(())
-}
-
-/// Run tectonic compilation in an isolated subprocess.
-///
-/// This avoids the font cache assertion failure (`font_cache.fonts == NULL`)
-/// that occurs when tectonic is called multiple times in the same process.
-/// The C-level static `font_cache` in `dpx-pdffont.c` is not cleaned up
-/// on compilation failure, causing subsequent calls to abort.
-///
-/// By spawning a subprocess, each compilation gets a fresh process with
-/// clean global state, and cleanup happens automatically on process exit.
-fn compile_with_tectonic_subprocess(work_dir: &Path, main_file: &str) -> Result<(), String> {
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("Failed to get current executable path: {}", e))?;
-
-    let mut cmd = std::process::Command::new(&exe);
-    cmd.args(["--tectonic-compile", &work_dir.to_string_lossy(), main_file])
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped());
-    #[cfg(target_os = "windows")]
-    cmd.creation_flags(CREATE_NO_WINDOW);
-    let output = cmd
-        .output()
-        .map_err(|e| format!("Failed to spawn tectonic subprocess: {}", e))?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        Err(stderr.trim().to_string())
-    }
-}
-
 // --- TeXLive Compilation ---
 
 /// Build a PATH that includes the TeXLive bin directory so that xelatex
@@ -866,7 +788,7 @@ pub async fn compile_latex(
             "full copy"
         },
         if is_reuse { "reuse" } else { "first build" },
-        if use_texlive { "texlive" } else { "tectonic" }
+        if use_texlive { "texlive" } else { "built-in" }
     );
 
     // Remove stale PDF so a failed compile doesn't return the previous result.
@@ -899,17 +821,14 @@ pub async fn compile_latex(
     };
 
     if !use_texlive {
-        if let Some(TexEngine::LuaLaTeX) = engine {
-            return Err(
-                "Compilation failed\n\nThis document requires LuaLaTeX (% !TEX program = lualatex), \
-                 which is not supported. Prism uses a XeTeX-based engine (Tectonic). \
-                 Please switch to XeLaTeX or remove the magic comment."
-                    .to_string(),
-            );
-        }
+        return Err(
+            "Compilation failed\n\nTectonic LaTeX engine has been removed to reduce dependencies. \
+             Please use TeXLive for LaTeX compilation instead, or set use_texlive=true in your compilation request."
+                .to_string(),
+        );
     }
 
-    let compile_result = if use_texlive {
+    let compile_result = {
         let work_dir_clone = work_dir.clone();
         let main_file_clone = main_file.clone();
         let result = tokio::task::spawn_blocking(move || {
@@ -924,70 +843,9 @@ pub async fn compile_latex(
             result.is_ok()
         );
         result
-    } else {
-        // Run Tectonic in a subprocess to isolate C-level global state (font cache, etc.).
-        let work_dir_clone = work_dir.clone();
-        let main_file_clone = main_file.clone();
-        let result = tokio::task::spawn_blocking(move || {
-            lower_thread_priority();
-            compile_with_tectonic_subprocess(&work_dir_clone, &main_file_clone)
-        })
-        .await
-        .map_err(|e| format!("Compilation task panicked: {}", e))?;
-        eprintln!(
-            "[latex] +{:.0}ms tectonic done (ok={})",
-            t0.elapsed().as_millis(),
-            result.is_ok()
-        );
-        result
     };
 
     let log_path = work_dir.join(format!("{}.log", main_file_name));
-
-    // Handle "No pages of output" — retry with \AtEndDocument{\null} injection (Tectonic only).
-    // TeXLive multi-pass handles this differently; the injection is Tectonic-specific.
-    if !use_texlive && !pdf_path.exists() {
-        let log_path_clone = log_path.clone();
-        let main_tex = work_dir.join(&main_file);
-        let pdf_path_clone = pdf_path.clone();
-        let main_file_clone = main_file.clone();
-        let work_dir_clone = work_dir.clone();
-
-        let needs_retry = tokio::task::spawn_blocking(move || {
-            let log_content = std::fs::read_to_string(&log_path_clone).unwrap_or_default();
-            if !log_content.contains("No pages of output") || has_real_errors(&log_content) {
-                return Ok(false);
-            }
-            eprintln!("[latex] no pages of output — retrying with \\null injection");
-            if let Ok(content) = std::fs::read_to_string(&main_tex) {
-                if let Some(pos) = content.find("\\begin{document}") {
-                    let modified = format!(
-                        "{}\\AtEndDocument{{\\null}}{}",
-                        &content[..pos],
-                        &content[pos..]
-                    );
-                    let _ = std::fs::write(&main_tex, &modified);
-                    return Ok(true);
-                }
-            }
-            Ok::<bool, String>(false)
-        })
-        .await
-        .map_err(|e| format!("Retry prep panicked: {}", e))??;
-
-        if needs_retry {
-            let retry_result = tokio::task::spawn_blocking(move || {
-                compile_with_tectonic_subprocess(&work_dir_clone, &main_file_clone)
-            })
-            .await
-            .map_err(|e| format!("Retry task panicked: {}", e))?;
-            eprintln!(
-                "[latex] empty-body retry: ok={} pdf_exists={}",
-                retry_result.is_ok(),
-                pdf_path_clone.exists()
-            );
-        }
-    }
 
     // Store build info
     {
@@ -1672,7 +1530,7 @@ Postamble:
         std::fs::write(&pdf_path, "old pdf data").unwrap();
         assert!(pdf_path.exists());
 
-        // This is what compile_latex does before running tectonic
+        // This is what compile_latex does before running compilation
         let _ = std::fs::remove_file(&pdf_path);
         assert!(!pdf_path.exists());
 

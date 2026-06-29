@@ -34,7 +34,10 @@ export function readStoredAppZoom(): number {
 
 async function applyAppZoom(value: number): Promise<number> {
   const zoom = clampAppZoom(value);
-  await getCurrentWebview().setZoom(zoom);
+  // Only call Tauri API if running in Tauri context
+  if (typeof window !== 'undefined' && '__TAURI__' in window) {
+    await getCurrentWebview().setZoom(zoom);
+  }
   return zoom;
 }
 
