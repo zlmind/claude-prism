@@ -36,7 +36,7 @@ document.addEventListener("visibilitychange", () => {
 
 // Tauri-native focus event — more reliable than visibilitychange on macOS.
 // Only register when running in Tauri context
-if (typeof window !== 'undefined' && '__TAURI__' in window) {
+if (typeof window !== "undefined" && "__TAURI__" in window) {
   listen("window-focus-restored", () => {
     dispatchVisibilityRestored("window-focus-restored");
   });
@@ -64,7 +64,7 @@ function hideLoadingScreen() {
     setTimeout(() => loading.remove(), 300);
   }
   // Only call Tauri APIs if running in Tauri context
-  if (typeof window !== 'undefined' && '__TAURI__' in window) {
+  if (typeof window !== "undefined" && "__TAURI__" in window) {
     getCurrentWindow().show();
   }
 }
