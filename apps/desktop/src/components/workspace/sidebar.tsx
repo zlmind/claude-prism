@@ -512,14 +512,16 @@ export function Sidebar() {
       setNameError("A file or folder with this name already exists");
       return;
     }
-    // Auto-append .tex if no extension provided
-    const finalName = /\.\w+$/.test(name) ? name : `${name}.tex`;
+    // Auto-append .md if no extension provided
+    const finalName = /\.\w+$/.test(name) ? name : `${name}.md`;
     const lower = finalName.toLowerCase();
-    const type: "tex" | "image" = /\.(png|jpg|jpeg|gif|svg|bmp|webp)$/.test(
+    const type: "tex" | "image" | "other" = /\.(png|jpg|jpeg|gif|svg|bmp|webp)$/.test(
       lower,
     )
       ? "image"
-      : "tex";
+      : lower.endsWith(".md") || lower.endsWith(".markdown")
+        ? "other"
+        : "tex";
     createNewFile(finalName, type, addDialogFolder);
     setNewFileName("");
     setNameError("");
@@ -679,7 +681,7 @@ export function Sidebar() {
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => openNewFileDialog()}>
                       <FileTextIcon className="mr-2 size-4" />
-                      New LaTeX File
+                      New Markdown File
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => openNewFolderDialog()}>
                       <FolderPlusIcon className="mr-2 size-4" />
@@ -862,7 +864,7 @@ export function Sidebar() {
           </DialogHeader>
           <div className="space-y-2 py-4">
             <Input
-              placeholder="filename.tex"
+              placeholder="filename.md"
               value={newFileName}
               onChange={(e) => {
                 setNewFileName(e.target.value);

@@ -118,7 +118,7 @@ interface DocumentState {
   saveCurrentFile: () => Promise<void>;
   createNewFile: (
     name: string,
-    type: "tex" | "image",
+    type: "tex" | "image" | "other",
     folder?: string,
   ) => Promise<void>;
   createFolder: (name: string, parentFolder?: string) => Promise<void>;
@@ -748,9 +748,12 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
 
     const relativePath = folder ? `${folder}/${name}` : name;
     const isTexFile = name.endsWith(".tex") || name.endsWith(".ltx");
+    const isMdFile = name.endsWith(".md") || name.endsWith(".markdown");
     const content = isTexFile
       ? `\\documentclass{article}\n\n\\begin{document}\n\n% Your content here\n\n\\end{document}\n`
-      : "";
+      : isMdFile
+        ? `# ${name.replace(/\.(md|markdown)$/, "")}\n\n`
+        : "";
 
     const fullPath = await createFileOnDisk(
       state.projectRoot,
