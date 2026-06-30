@@ -19,7 +19,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
     <div className="flex h-full flex-col bg-background">
       {/* Tab bar */}
       <div className="flex items-center justify-between border-border border-b pr-1">
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           <ChatTabBar />
         </div>
         {onClose && (
