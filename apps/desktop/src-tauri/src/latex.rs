@@ -87,12 +87,6 @@ fn extract_error_lines(log: &str) -> String {
     log[start..].to_string()
 }
 
-/// Check if the log contains real TeX errors (! lines or Error: messages).
-fn has_real_errors(log: &str) -> bool {
-    log.lines()
-        .any(|l| l.starts_with('!') || l.contains("Error:"))
-}
-
 #[derive(Debug, PartialEq)]
 enum TexEngine {
     Latex,
@@ -1281,23 +1275,6 @@ Postamble:
             !result.contains("Add visible content"),
             "No pages fallback should NOT appear"
         );
-    }
-
-    // --- has_real_errors ---
-
-    #[test]
-    fn test_has_real_errors_with_bang() {
-        assert!(has_real_errors("ok\n! Undefined control sequence.\nmore"));
-    }
-
-    #[test]
-    fn test_has_real_errors_with_error_colon() {
-        assert!(has_real_errors("LaTeX Error: Bad math\nstuff"));
-    }
-
-    #[test]
-    fn test_has_real_errors_none() {
-        assert!(!has_real_errors("This is pdfTeX\nNo pages of output.\n"));
     }
 
     // --- detect_tex_engine ---

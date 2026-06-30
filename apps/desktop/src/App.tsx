@@ -72,7 +72,7 @@ function WorkspaceWithClaude() {
   // Consume pending initial prompt from project wizard
   useEffect(() => {
     if (!initialized) return;
-    // Delay to let ClaudeChatDrawer mount and register event listeners
+    // Delay to let ChatPanel mount and register event listeners
     const timer = setTimeout(() => {
       const prompt = useClaudeChatStore
         .getState()

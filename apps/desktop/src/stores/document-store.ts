@@ -20,7 +20,6 @@ import { useHistoryStore } from "@/stores/history-store";
 import { useClaudeChatStore } from "@/stores/claude-chat-store";
 import { clearDocCache } from "@/lib/mupdf/pdf-doc-cache";
 import { clearScrollPositionCache } from "@/components/workspace/preview/pdf-viewer";
-import { clearZoomCache } from "@/components/workspace/preview/pdf-preview";
 import { clearEditorStateCache } from "@/components/workspace/editor/latex-editor";
 import { createLogger } from "@/lib/debug/logger";
 
@@ -357,7 +356,6 @@ export const useDocumentStore = create<DocumentState>()((set, get) => ({
     }
     clearDocCache();
     clearScrollPositionCache();
-    clearZoomCache();
     clearEditorStateCache();
     clearPdfBytesCache();
     set({

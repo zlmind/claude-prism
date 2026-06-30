@@ -74,7 +74,7 @@ import {
   CopyIcon,
   XIcon,
 } from "lucide-react";
-import { ClaudeChatDrawer } from "@/components/claude-chat/claude-chat-drawer";
+// ClaudeChatDrawer moved to workspace-layout as right-column ChatPanel
 import { ProposedChangesPanel } from "@/components/claude-chat/proposed-changes-panel";
 import { ImagePreview } from "./image-preview";
 import { SearchPanel } from "./search-panel";
@@ -1145,7 +1145,7 @@ export function LatexEditor() {
           </div>
         </div>
       )}
-      {/* Main content area — single wrapper keeps ClaudeChatDrawer stable */}
+      {/* Main content area */}
       <div
         ref={isPdf || isImage ? undefined : parentRef}
         className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
@@ -1315,8 +1315,7 @@ export function LatexEditor() {
             )}
           </>
         )}
-        {/* Chat drawer — single stable instance across all file types */}
-        <ClaudeChatDrawer />
+        {/* Chat moved to right column in workspace-layout */}
       </div>
       {/* Text-editor-only bottom panels */}
       {!isPdf &&
