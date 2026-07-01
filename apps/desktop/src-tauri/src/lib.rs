@@ -1,4 +1,5 @@
 mod claude;
+mod engine;
 mod history;
 mod latex;
 mod skills;
@@ -333,6 +334,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .manage(claude::ClaudeProcessState::default())
+        .manage(engine::EngineProcessState::default())
         .manage(latex::LatexCompilerState::default())
         .manage(zotero::ZoteroOAuthState::default())
         .setup(|app| {
@@ -378,6 +380,11 @@ pub fn run() {
             claude::set_claude_fast_mode,
             claude::list_claude_sessions,
             claude::load_session_history,
+            engine::get_available_engines,
+            engine::check_engine_status,
+            engine::execute_with_engine,
+            engine::cancel_engine_execution,
+            engine::list_providers,
             zotero::zotero_start_oauth,
             zotero::zotero_complete_oauth,
             zotero::zotero_cancel_oauth,
@@ -467,6 +474,14 @@ pub fn run() {
                 let state_clone = claude_state.inner().clone();
                 tauri::async_runtime::spawn(async move {
                     claude::kill_process_for_window(&state_clone, &label_clone).await;
+                });
+
+                // Kill Pi engine processes associated with this window
+                let engine_state = app_handle.state::<engine::EngineProcessState>();
+                let label_clone = label.clone();
+                let state_clone = engine_state.inner().clone();
+                tauri::async_runtime::spawn(async move {
+                    engine::kill_process_for_window(&state_clone, &label_clone).await;
                 });
 
                 // Quit the app when the last window is closed

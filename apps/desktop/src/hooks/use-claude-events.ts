@@ -35,6 +35,25 @@ interface ClaudeErrorPayload {
   data: string;
 }
 
+/** Pi engine event payload shapes */
+interface EngineOutputPayload {
+  engine: string;
+  tab_id: string;
+  data: string;
+}
+
+interface EngineCompletePayload {
+  engine: string;
+  tab_id: string;
+  success: boolean;
+}
+
+interface EngineErrorPayload {
+  engine: string;
+  tab_id: string;
+  data: string;
+}
+
 /**
  * Hook that manages Tauri event listeners for Claude CLI streaming output.
  *
@@ -116,6 +135,90 @@ export function useClaudeEvents() {
       const start = streamStartTimeRef.current.get(tabId);
       if (!start) return "";
       return `+${((performance.now() - start) / 1000).toFixed(1)}s`;
+    }
+
+    /**
+     * Handle Pi engine stream messages.
+     * Pi outputs JSON-RPC events that need to be translated to ClaudeStreamMessage format.
+     */
+    function handlePiStreamMessage(payload: ClaudeOutputPayload) {
+      const { tab_id: tabId, data } = payload;
+
+      let piMsg: any;
+      try {
+        piMsg = JSON.parse(data);
+      } catch {
+        return;
+      }
+
+      const chatStore = useClaudeChatStore.getState();
+
+      // Only process messages if this tab is still streaming
+      const tab = chatStore.tabs.find((t) => t.id === tabId);
+      if (!tab?.isStreaming) return;
+
+      const count = (msgCountRef.current.get(tabId) ?? 0) + 1;
+      msgCountRef.current.set(tabId, count);
+      const now = performance.now();
+      if (count === 1) streamStartTimeRef.current.set(tabId, now);
+
+      log.debug(
+        `[pi] [${tabId}] ${elapsed(tabId)} #${count} type=${piMsg.type}`,
+      );
+
+      // Handle different Pi event types
+      if (
+        piMsg.type === "text_delta" ||
+        piMsg.type === "text_start" ||
+        piMsg.type === "text_end"
+      ) {
+        // Accumulate text content and create assistant message
+        const chatStore = useClaudeChatStore.getState();
+        const tab = chatStore.tabs.find((t) => t.id === tabId);
+        if (!tab) return;
+
+        // Find or create the current assistant message
+        const lastMsg = tab.messages[tab.messages.length - 1];
+        if (lastMsg?.type === "assistant" && lastMsg._piAccumulating) {
+          // Append to existing accumulating message
+          if (piMsg.type === "text_delta" && piMsg.delta) {
+            lastMsg.message!.content![0].text =
+              (lastMsg.message!.content![0].text || "") + piMsg.delta;
+            chatStore._appendMessage(tabId, {
+              ...lastMsg,
+              _piAccumulating: true,
+            });
+          } else if (piMsg.type === "text_end") {
+            // Finalize the message
+            chatStore._appendMessage(tabId, {
+              ...lastMsg,
+              _piAccumulating: false,
+            });
+          }
+        } else if (piMsg.type === "text_delta" || piMsg.type === "text_start") {
+          // Create new assistant message
+          const assistantMsg: ClaudeStreamMessage & {
+            _piAccumulating?: boolean;
+          } = {
+            type: "assistant",
+            message: {
+              content: [
+                {
+                  type: "text",
+                  text: piMsg.delta || piMsg.content || "",
+                },
+              ],
+            },
+            _piAccumulating: true,
+          };
+          chatStore._appendMessage(tabId, assistantMsg);
+        }
+      } else if (piMsg.type === "response") {
+        // Response complete
+        log.info(`[pi] [${tabId}] response complete: success=${piMsg.success}`);
+      } else if (piMsg.type === "error") {
+        chatStore._setError(tabId, piMsg.message || "Pi engine error");
+      }
     }
 
     function handleStreamMessage(payload: ClaudeOutputPayload) {
@@ -449,6 +552,66 @@ export function useClaudeEvents() {
         return;
       }
       listenersRef.current.push(unlistenError);
+
+      // ── Pi Engine event listeners ──
+
+      const unlistenEngineOutput = await listen<EngineOutputPayload>(
+        "engine-output",
+        (event) => {
+          if (!cancelled) {
+            const { engine, tab_id: tabId, data } = event.payload;
+            if (engine === "pi") {
+              handlePiStreamMessage({ tab_id: tabId, data });
+            }
+          }
+        },
+      );
+      if (cancelled) {
+        unlistenEngineOutput();
+        return;
+      }
+      listenersRef.current.push(unlistenEngineOutput);
+
+      const unlistenEngineComplete = await listen<EngineCompletePayload>(
+        "engine-complete",
+        (event) => {
+          if (!cancelled) {
+            const { engine, tab_id: tabId, success } = event.payload;
+            if (engine === "pi") {
+              handleComplete({ tab_id: tabId, success });
+            }
+          }
+        },
+      );
+      if (cancelled) {
+        unlistenEngineComplete();
+        return;
+      }
+      listenersRef.current.push(unlistenEngineComplete);
+
+      const unlistenEngineError = await listen<EngineErrorPayload>(
+        "engine-error",
+        (event) => {
+          if (!cancelled) {
+            const { engine, tab_id: tabId, data } = event.payload;
+            if (engine === "pi") {
+              log.warn(`[pi] [${tabId}] stderr: ${data}`);
+              if (
+                data.includes("Error") ||
+                data.includes("error") ||
+                data.includes("ECONNREFUSED")
+              ) {
+                log.error(`[pi] [${tabId}] CRITICAL: ${data}`);
+              }
+            }
+          }
+        },
+      );
+      if (cancelled) {
+        unlistenEngineError();
+        return;
+      }
+      listenersRef.current.push(unlistenEngineError);
     })();
 
     return () => {

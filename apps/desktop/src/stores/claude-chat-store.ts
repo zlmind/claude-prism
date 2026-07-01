@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { useDocumentStore } from "./document-store";
 import { useHistoryStore } from "./history-store";
+import { useEngineStore, type EngineId } from "./engine-store";
 import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("claude");
@@ -53,6 +54,8 @@ export interface ClaudeStreamMessage {
   result?: string;
   is_error?: boolean;
   num_turns?: number;
+  /** Internal: tracks Pi engine text accumulation */
+  _piAccumulating?: boolean;
 }
 
 // ─── Tab Types ───
@@ -181,6 +184,10 @@ interface ClaudeChatState {
   effortLevel: "low" | "medium" | "high";
   setEffortLevel: (level: "low" | "medium" | "high") => void;
 
+  /** Active engine for routing prompts */
+  activeEngine: EngineId;
+  setActiveEngine: (engine: EngineId) => void;
+
   // Actions
   sendPrompt: (
     userPrompt: string,
@@ -230,6 +237,9 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
   effortLevel: "medium",
   setEffortLevel: (level) => set({ effortLevel: level }),
 
+  activeEngine: "claude",
+  setActiveEngine: (engine) => set({ activeEngine: engine }),
+
   pendingInitialPrompt: null,
   setPendingInitialPrompt: (prompt) => set({ pendingInitialPrompt: prompt }),
   consumePendingInitialPrompt: () => {
@@ -267,6 +277,13 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
     if (activeTab?.isStreaming) return;
 
     const { sessionId, selectedModel, effortLevel } = state;
+    const {
+      activeEngine,
+      selectedProvider,
+      selectedModel: piModel,
+      apiKeys,
+      thinkingLevel,
+    } = useEngineStore.getState();
 
     const sendStart = performance.now();
     log.info("sendPrompt start", {
@@ -380,25 +397,50 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
     });
 
     try {
-      if (sessionId) {
-        // Resume existing session
-        await invoke("resume_claude_code", {
+      if (activeEngine === "pi") {
+        // Route to Pi engine
+        const apiKey = apiKeys[selectedProvider] || "";
+        if (!apiKey) {
+          set((s) =>
+            applyTabUpdate(s, activeTabId, {
+              isStreaming: false,
+              error:
+                "API key required for Pi engine. Open Engine Settings to configure.",
+            }),
+          );
+          return;
+        }
+
+        await invoke("execute_with_engine", {
+          engine: "pi",
           projectPath,
-          sessionId,
           prompt,
           tabId: activeTabId,
-          model: selectedModel,
-          effortLevel,
+          model: piModel,
+          provider: selectedProvider,
+          apiKey,
+          effortLevel: thinkingLevel,
         });
       } else {
-        // New session
-        await invoke("execute_claude_code", {
-          projectPath,
-          prompt,
-          tabId: activeTabId,
-          model: selectedModel,
-          effortLevel,
-        });
+        // Route to Claude engine (existing behavior)
+        if (sessionId) {
+          await invoke("resume_claude_code", {
+            projectPath,
+            sessionId,
+            prompt,
+            tabId: activeTabId,
+            model: selectedModel,
+            effortLevel,
+          });
+        } else {
+          await invoke("execute_claude_code", {
+            projectPath,
+            prompt,
+            tabId: activeTabId,
+            model: selectedModel,
+            effortLevel,
+          });
+        }
       }
       log.info(
         `sendPrompt complete in ${(performance.now() - sendStart).toFixed(0)}ms`,
@@ -418,10 +460,17 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
   },
 
   cancelExecution: async () => {
-    const { activeTabId } = get();
+    const { activeTabId, activeEngine } = get();
     set({ _cancelledByUser: true });
     try {
-      await invoke("cancel_claude_execution", { tabId: activeTabId });
+      if (activeEngine === "pi") {
+        await invoke("cancel_engine_execution", {
+          engine: "pi",
+          tabId: activeTabId,
+        });
+      } else {
+        await invoke("cancel_claude_execution", { tabId: activeTabId });
+      }
     } catch {
       // ignore
     }

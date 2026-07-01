@@ -38,6 +38,8 @@ import { getUniqueTargetName } from "@/lib/tauri/fs";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { cn } from "@/lib/utils";
 import { SlashCommandPicker, type SlashCommand } from "./slash-command-picker";
+import { EngineSelector } from "./engine-selector";
+import { EngineSettingsDialog } from "./engine-settings-dialog";
 import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("chat-composer");
@@ -895,8 +897,9 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
         )}
 
         <div className="flex items-center justify-between px-2 pb-2">
-          {/* Model & settings selector */}
-          <div>
+          {/* Engine & model selector */}
+          <div className="flex items-center gap-1">
+            <EngineSelector />
             <button
               ref={modelButtonRef}
               type="button"
@@ -952,3 +955,5 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
     </div>
   );
 };
+
+export { EngineSettingsDialog };

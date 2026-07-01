@@ -3,6 +3,7 @@ import { useClaudeEvents } from "@/hooks/use-claude-events";
 import { ChatMessages } from "./chat-messages";
 import { ChatComposer } from "./chat-composer";
 import { ChatTabBar } from "./chat-tab-bar";
+import { EngineSettingsDialog } from "./engine-settings-dialog";
 import { XIcon } from "lucide-react";
 
 interface ChatPanelProps {
@@ -48,6 +49,9 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
 
       {/* Composer */}
       <ChatComposer isOpen={true} />
+
+      {/* Engine settings dialog */}
+      <EngineSettingsDialog />
     </div>
   );
 }

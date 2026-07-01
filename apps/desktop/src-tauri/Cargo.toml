@@ -32,6 +32,7 @@ git2 = { version = "0.20", default-features = false, features = ["vendored-libgi
 chrono = "0.4"
 uuid = { version = "1", features = ["v4"] }
 which = "7"
+keyring = { version = "3", features = ["apple-native", "secret-service", "windows-native"] }
 # Tectonic LaTeX compiler removed to save ~500MB of C dependencies
 flate2 = "1"
 tar = "0.4"
