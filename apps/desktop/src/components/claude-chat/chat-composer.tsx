@@ -943,8 +943,12 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
                 <span className="max-w-[100px] truncate">
                   {engineSelectedModel
                     ? (() => {
-                        const p = engineProviders.find((x) => x.id === engineSelectedProvider);
-                        const m = p?.models.find((x) => x.id === engineSelectedModel);
+                        const p = engineProviders.find(
+                          (x) => x.id === engineSelectedProvider,
+                        );
+                        const m = p?.models.find(
+                          (x) => x.id === engineSelectedModel,
+                        );
                         return m?.name || engineSelectedModel;
                       })()
                     : "Select model"}

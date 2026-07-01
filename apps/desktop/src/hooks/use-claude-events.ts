@@ -46,6 +46,7 @@ interface EngineCompletePayload {
   engine: string;
   tab_id: string;
   success: boolean;
+  generation?: number;
 }
 
 interface EngineErrorPayload {
@@ -62,6 +63,8 @@ interface EngineErrorPayload {
  * keyed by tab_id so multiple tabs can stream concurrently.
  */
 export function useClaudeEvents() {
+  console.log('[useClaudeEvents] hook mounted');
+
   // Per-tab mutable state stored in refs so the long-lived listeners
   // always read the latest values without needing to be re-created.
   const pendingToolUsesRef = useRef(
@@ -141,13 +144,17 @@ export function useClaudeEvents() {
      * Handle Pi engine stream messages.
      * Pi outputs JSON-RPC events that need to be translated to ClaudeStreamMessage format.
      */
-    function handlePiStreamMessage(payload: ClaudeOutputPayload) {
+    async function handlePiStreamMessage(payload: ClaudeOutputPayload) {
       const { tab_id: tabId, data } = payload;
+
+      // Log raw data for debugging
+      console.log('[pi-raw]', tabId, data.slice(0, 300));
 
       let piMsg: any;
       try {
         piMsg = JSON.parse(data);
-      } catch {
+      } catch (e) {
+        console.error('[pi-parse-error]', e, data);
         return;
       }
 
@@ -162,61 +169,115 @@ export function useClaudeEvents() {
       const now = performance.now();
       if (count === 1) streamStartTimeRef.current.set(tabId, now);
 
+      // Log all Pi messages for debugging
       log.debug(
         `[pi] [${tabId}] ${elapsed(tabId)} #${count} type=${piMsg.type}`,
       );
 
-      // Handle different Pi event types
-      if (
-        piMsg.type === "text_delta" ||
-        piMsg.type === "text_start" ||
-        piMsg.type === "text_end"
-      ) {
-        // Accumulate text content and create assistant message
+      // Handle Pi's nested message structure
+      // Pi sends: {type: "message_update", assistantMessageEvent: {...}}
+      let actualMsg = piMsg;
+      if (piMsg.type === "message_update" && piMsg.assistantMessageEvent) {
+        actualMsg = piMsg.assistantMessageEvent;
+      }
+
+      // Handle different Pi event types (using actualMsg for nested events).
+      // Use _appendMessage only for truly NEW messages (text_start, thinking_start first time).
+      // Use _updateLastMessage for delta updates to avoid duplicate messages.
+      if (actualMsg.type === "text_start") {
+        // Start of text content - create new assistant message
         const chatStore = useClaudeChatStore.getState();
         const tab = chatStore.tabs.find((t) => t.id === tabId);
         if (!tab) return;
 
-        // Find or create the current assistant message
+        const assistantMsg: ClaudeStreamMessage & { _piAccumulating?: boolean } = {
+          type: "assistant",
+          message: { content: [{ type: "text", text: "" }] },
+          _piAccumulating: true,
+        };
+        chatStore._appendMessage(tabId, assistantMsg);
+      } else if (actualMsg.type === "text_delta") {
+        const text = actualMsg.delta || "";
+        if (!text) return;
+
+        const chatStore = useClaudeChatStore.getState();
+        const tab = chatStore.tabs.find((t) => t.id === tabId);
+        if (!tab) return;
+
         const lastMsg = tab.messages[tab.messages.length - 1];
         if (lastMsg?.type === "assistant" && lastMsg._piAccumulating) {
-          // Append to existing accumulating message
-          if (piMsg.type === "text_delta" && piMsg.delta) {
-            lastMsg.message!.content![0].text =
-              (lastMsg.message!.content![0].text || "") + piMsg.delta;
-            chatStore._appendMessage(tabId, {
-              ...lastMsg,
-              _piAccumulating: true,
-            });
-          } else if (piMsg.type === "text_end") {
-            // Finalize the message
-            chatStore._appendMessage(tabId, {
-              ...lastMsg,
-              _piAccumulating: false,
-            });
+          const textBlock = lastMsg.message!.content!.find(b => b.type === "text");
+          if (textBlock) {
+            textBlock.text = (textBlock.text || "") + text;
+            chatStore._updateLastMessage(tabId, { ...lastMsg, _piAccumulating: true });
           }
-        } else if (piMsg.type === "text_delta" || piMsg.type === "text_start") {
-          // Create new assistant message
-          const assistantMsg: ClaudeStreamMessage & {
-            _piAccumulating?: boolean;
-          } = {
+        }
+      } else if (actualMsg.type === "text_end") {
+        const chatStore = useClaudeChatStore.getState();
+        const tab = chatStore.tabs.find((t) => t.id === tabId);
+        if (!tab) return;
+
+        const lastMsg = tab.messages[tab.messages.length - 1];
+        if (lastMsg?.type === "assistant" && lastMsg._piAccumulating) {
+          chatStore._updateLastMessage(tabId, { ...lastMsg, _piAccumulating: false });
+        }
+      } else if (actualMsg.type === "thinking_start") {
+        const chatStore = useClaudeChatStore.getState();
+        const tab = chatStore.tabs.find((t) => t.id === tabId);
+        if (!tab) return;
+
+        const lastMsg = tab.messages[tab.messages.length - 1];
+        if (lastMsg?.type === "assistant" && lastMsg._piAccumulating) {
+          lastMsg.message!.content!.push({ type: "thinking", thinking: "" });
+          chatStore._updateLastMessage(tabId, { ...lastMsg, _piAccumulating: true });
+        } else {
+          const assistantMsg: ClaudeStreamMessage & { _piAccumulating?: boolean } = {
             type: "assistant",
-            message: {
-              content: [
-                {
-                  type: "text",
-                  text: piMsg.delta || piMsg.content || "",
-                },
-              ],
-            },
+            message: { content: [{ type: "thinking", thinking: "" }] },
             _piAccumulating: true,
           };
           chatStore._appendMessage(tabId, assistantMsg);
         }
-      } else if (piMsg.type === "response") {
-        // Response complete
-        log.info(`[pi] [${tabId}] response complete: success=${piMsg.success}`);
+      } else if (actualMsg.type === "thinking_delta") {
+        const thinking = actualMsg.delta || "";
+        if (!thinking) return;
+
+        const chatStore = useClaudeChatStore.getState();
+        const tab = chatStore.tabs.find((t) => t.id === tabId);
+        if (!tab) return;
+
+        const lastMsg = tab.messages[tab.messages.length - 1];
+        if (lastMsg?.type === "assistant" && lastMsg._piAccumulating) {
+          const thinkingBlock = lastMsg.message!.content!.find(b => b.type === "thinking");
+          if (thinkingBlock) {
+            thinkingBlock.thinking = (thinkingBlock.thinking || "") + thinking;
+            chatStore._updateLastMessage(tabId, { ...lastMsg, _piAccumulating: true });
+          }
+        }
+      } else if (actualMsg.type === "thinking_end") {
+        // No-op
+      } else if (actualMsg.type === "message_end" || actualMsg.type === "turn_end") {
+        const chatStore = useClaudeChatStore.getState();
+        const tab = chatStore.tabs.find((t) => t.id === tabId);
+        if (!tab) return;
+
+        const lastMsg = tab.messages[tab.messages.length - 1];
+        if (lastMsg?.type === "assistant" && lastMsg._piAccumulating) {
+          chatStore._updateLastMessage(tabId, { ...lastMsg, _piAccumulating: false });
+        }
+      } else if (piMsg.type === "agent_end") {
+        // Agent end - this is Pi's completion signal (NOT "response" which is just an ACK)
+        const success = piMsg.success !== false;
+        console.log(`[pi-handleComplete] [${tabId}] agent_end calling handleComplete success=${success}`);
+        log.info(`[pi] [${tabId}] agent_end complete: success=${success}`);
+
+        // Trigger completion - this will set isStreaming=false and do cleanup
+        await handleComplete({ tab_id: tabId, success });
+      } else if (piMsg.type === "response" && piMsg.error) {
+        // Response with error - only handle errors, don't end stream
+        chatStore._setError(tabId, String(piMsg.error));
       } else if (piMsg.type === "error") {
+        // Pi error event
         chatStore._setError(tabId, piMsg.message || "Pi engine error");
       }
     }
@@ -554,10 +615,12 @@ export function useClaudeEvents() {
       listenersRef.current.push(unlistenError);
 
       // ── Pi Engine event listeners ──
+      console.log('[useClaudeEvents] Setting up Pi engine event listeners...');
 
       const unlistenEngineOutput = await listen<EngineOutputPayload>(
         "engine-output",
         (event) => {
+          console.log('[engine-output]', event.payload.engine, event.payload.tab_id, event.payload.data.slice(0, 100));
           if (!cancelled) {
             const { engine, tab_id: tabId, data } = event.payload;
             if (engine === "pi") {
@@ -572,6 +635,8 @@ export function useClaudeEvents() {
       }
       listenersRef.current.push(unlistenEngineOutput);
 
+      // Pi handles completion via agent_end event, not engine-complete.
+      // engine-complete is only emitted by cancel_engine_execution (user cancel).
       const unlistenEngineComplete = await listen<EngineCompletePayload>(
         "engine-complete",
         (event) => {

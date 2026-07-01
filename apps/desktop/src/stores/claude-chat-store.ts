@@ -102,19 +102,15 @@ function makeDefaultTab(id: string): TabState {
     error: null,
     totalInputTokens: 0,
     totalOutputTokens: 0,
-    draft: { input: "", pinnedContexts: [] },
+    draft: {
+      input: "",
+      pinnedContexts: [],
+    },
   };
 }
 
-let tabCounter = 0;
-function nextTabId(): string {
-  return `tab-${++tabCounter}`;
-}
+const DEFAULT_TAB_ID = "tab-1";
 
-/**
- * Update a specific tab in `tabs[]` and, if that tab is the active tab,
- * also project the changed fields to top-level state for consumer compatibility.
- */
 function applyTabUpdate(
   state: ClaudeChatState,
   tabId: string,
@@ -125,21 +121,19 @@ function applyTabUpdate(
   );
   const result: Partial<ClaudeChatState> = { tabs: newTabs };
   if (tabId === state.activeTabId) {
-    for (const key of TAB_FIELDS) {
-      if (key in updates) {
-        (result as any)[key] = (updates as any)[key];
+    for (const field of TAB_FIELDS) {
+      if (field in updates) {
+        (result as any)[field] = (updates as any)[field];
       }
     }
   }
   return result;
 }
 
-// ─── State Interface ───
+// ─── Store Interface ───
 
-const DEFAULT_TAB_ID = nextTabId();
-
-interface ClaudeChatState {
-  // ── Projected fields (from active tab — read by consumers) ──
+export interface ClaudeChatState {
+  // Projected from active tab
   messages: ClaudeStreamMessage[];
   sessionId: string | null;
   isStreaming: boolean;
@@ -147,56 +141,25 @@ interface ClaudeChatState {
   totalInputTokens: number;
   totalOutputTokens: number;
 
-  // ── Tab state ──
+  // Tab management
   tabs: TabState[];
   activeTabId: string;
+  selectedModel: string;
+  setSelectedModel: (model: string) => void;
+  effortLevel: string;
+  setEffortLevel: (level: string) => void;
+  activeEngine: string;
+  setActiveEngine: (engine: string) => void;
 
-  /** Deferred prompt to send once the workspace is ready (set by project wizard) */
+  // Pending initial prompt (consumed once)
   pendingInitialPrompt: string | null;
-  setPendingInitialPrompt: (prompt: string | null) => void;
+  setPendingInitialPrompt: (prompt: string) => void;
   consumePendingInitialPrompt: () => string | null;
 
-  /** Pending attachments from external sources (e.g. PDF capture) */
-  pendingAttachments: {
-    label: string;
-    filePath: string;
-    selectedText: string;
-    imageDataUrl?: string;
-  }[];
-  addPendingAttachment: (attachment: {
-    label: string;
-    filePath: string;
-    selectedText: string;
-    imageDataUrl?: string;
-  }) => void;
-  consumePendingAttachments: () => {
-    label: string;
-    filePath: string;
-    selectedText: string;
-    imageDataUrl?: string;
-  }[];
-
-  /** Currently selected model (passed per-prompt to Claude CLI) */
-  selectedModel: "sonnet" | "opus" | "haiku" | "opusplan";
-  setSelectedModel: (model: "sonnet" | "opus" | "haiku" | "opusplan") => void;
-
-  /** Effort level for Opus 4.6 adaptive reasoning */
-  effortLevel: "low" | "medium" | "high";
-  setEffortLevel: (level: "low" | "medium" | "high") => void;
-
-  /** Active engine for routing prompts */
-  activeEngine: EngineId;
-  setActiveEngine: (engine: EngineId) => void;
-
-  // Actions
-  sendPrompt: (
-    userPrompt: string,
-    contextOverride?: { label: string; filePath: string; selectedText: string },
-  ) => Promise<void>;
-  cancelExecution: () => Promise<void>;
-  clearMessages: () => void;
-  newSession: () => void;
-  resumeSession: (sessionId: string) => Promise<void>;
+  // Pending attachments (consumed once)
+  pendingAttachments: PinnedContext[];
+  addPendingAttachment: (attachment: PinnedContext) => void;
+  consumePendingAttachments: () => PinnedContext[];
 
   // Tab actions
   createTab: () => string;
@@ -209,10 +172,18 @@ interface ClaudeChatState {
 
   // Internal actions (called by event hook, routed by tabId)
   _appendMessage: (tabId: string, msg: ClaudeStreamMessage) => void;
+  _updateLastMessage: (tabId: string, msg: ClaudeStreamMessage) => void;
   _setSessionId: (tabId: string, id: string) => void;
   _setStreaming: (tabId: string, streaming: boolean) => void;
   _setError: (tabId: string, error: string | null) => void;
   _cancelledByUser: boolean;
+}
+
+interface PinnedContext {
+  label: string;
+  filePath: string;
+  selectedText: string;
+  imageDataUrl?: string;
 }
 
 // ─── Store ───
@@ -411,10 +382,26 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
           return;
         }
 
+        // Build context from previous messages for Pi (new process each time)
+        const prevMessages = state.tabs.find(t => t.id === activeTabId)?.messages || [];
+        let fullPrompt = prompt;
+        if (prevMessages.length > 0) {
+          // Include conversation history as context
+          const history = prevMessages
+            .filter(m => m.type === "user" || m.type === "assistant")
+            .map(m => {
+              const role = m.type === "user" ? "User" : "Assistant";
+              const text = m.message?.content?.map(c => c.text || "").filter(Boolean).join("\n") || "";
+              return `[${role}]:\n${text}`;
+            })
+            .join("\n\n");
+          fullPrompt = `[Conversation history]\n${history}\n\n[New message]\n${prompt}`;
+        }
+
         await invoke("execute_with_engine", {
           engine: "pi",
           projectPath,
-          prompt,
+          prompt: fullPrompt,
           tabId: activeTabId,
           model: piModel,
           provider: selectedProvider,
@@ -446,153 +433,62 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
         `sendPrompt complete in ${(performance.now() - sendStart).toFixed(0)}ms`,
       );
     } catch (err: any) {
-      log.error(
-        `sendPrompt failed after ${(performance.now() - sendStart).toFixed(0)}ms`,
-        { error: String(err) },
-      );
-      set((s) =>
-        applyTabUpdate(s, activeTabId, {
-          isStreaming: false,
-          error: err?.message || String(err),
-        }),
-      );
+      log.error("sendPrompt invoke failed", err);
+      // Only clear streaming + set error if the tab wasn't already stopped by engine-complete
+      const currentTab = get().tabs.find((t) => t.id === activeTabId);
+      if (currentTab?.isStreaming) {
+        set((s) =>
+          applyTabUpdate(s, activeTabId, {
+            isStreaming: false,
+            error: `Failed to start Claude Code: ${err}`,
+          }),
+        );
+      }
     }
   },
 
   cancelExecution: async () => {
     const { activeTabId, activeEngine } = get();
-    set({ _cancelledByUser: true });
-    try {
-      if (activeEngine === "pi") {
-        await invoke("cancel_engine_execution", {
-          engine: "pi",
-          tabId: activeTabId,
-        });
-      } else {
-        await invoke("cancel_claude_execution", { tabId: activeTabId });
-      }
-    } catch {
-      // ignore
+    const engine = activeEngine;
+    if (activeEngine === "pi") {
+      await invoke("cancel_engine_execution", { engine, tabId: activeTabId });
+    } else {
+      await invoke("cancel_claude_execution", { tabId: activeTabId });
     }
-    set((s) => applyTabUpdate(s, activeTabId, { isStreaming: false }));
+    set((s) => ({
+      ...applyTabUpdate(s, activeTabId, { isStreaming: false, error: "Cancelled" }),
+      _cancelledByUser: true,
+    }));
+    log.info("execution cancelled by user", { tab: activeTabId });
   },
-
-  clearMessages: () => {
-    const { activeTabId } = get();
-    set((s) =>
-      applyTabUpdate(s, activeTabId, {
-        messages: [],
-        error: null,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-      }),
-    );
-  },
-
-  newSession: () => {
-    log.info("Starting new session");
-    const { activeTabId } = get();
-    set((s) =>
-      applyTabUpdate(s, activeTabId, {
-        messages: [],
-        sessionId: null,
-        error: null,
-        isStreaming: false,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        title: "New Chat",
-      }),
-    );
-  },
-
-  resumeSession: async (sessionId: string) => {
-    log.info(`Resuming session: ${sessionId.slice(0, 8)}`);
-    const { activeTabId } = get();
-    const projectPath = useDocumentStore.getState().projectRoot;
-
-    // Reset state with new session ID
-    set((s) =>
-      applyTabUpdate(s, activeTabId, {
-        messages: [],
-        sessionId,
-        error: null,
-        isStreaming: false,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-      }),
-    );
-
-    // Load session history from JSONL file
-    if (projectPath) {
-      try {
-        const history = await invoke<any[]>("load_session_history", {
-          projectPath,
-          sessionId,
-        });
-
-        // Filter to displayable message types and map to ClaudeStreamMessage
-        const messages: ClaudeStreamMessage[] = [];
-        for (const entry of history) {
-          const type = entry.type;
-          if (type === "user" || type === "assistant" || type === "result") {
-            messages.push(entry as ClaudeStreamMessage);
-          }
-        }
-
-        set((s) => applyTabUpdate(s, activeTabId, { messages }));
-      } catch (err) {
-        log.error("Failed to load session history", { error: String(err) });
-      }
-    }
-  },
-
-  // ─── Tab Actions ───
 
   createTab: () => {
-    log.debug("Creating new tab");
-    const id = nextTabId();
-    const newTab = makeDefaultTab(id);
-    set((s) => ({
-      tabs: [...s.tabs, newTab],
-      activeTabId: id,
-      // Project new tab fields to top-level
-      messages: newTab.messages,
-      sessionId: newTab.sessionId,
-      isStreaming: newTab.isStreaming,
-      error: newTab.error,
-      totalInputTokens: newTab.totalInputTokens,
-      totalOutputTokens: newTab.totalOutputTokens,
-    }));
-    return id;
+    const newId = `tab-${Date.now()}`;
+    set((state) => ({ tabs: [...state.tabs, makeDefaultTab(newId)] }));
+    return newId;
   },
 
   closeTab: (tabId: string) => {
+    // Don't close the last tab
     const state = get();
-    const tab = state.tabs.find((t) => t.id === tabId);
-    // Prevent closing a streaming tab
-    if (tab?.isStreaming) return;
-    // Prevent closing the last tab
     if (state.tabs.length <= 1) return;
 
     const idx = state.tabs.findIndex((t) => t.id === tabId);
-    if (idx === -1) return;
-
     const newTabs = state.tabs.filter((t) => t.id !== tabId);
 
     if (tabId === state.activeTabId) {
-      // Switch to adjacent tab
-      const newIdx = Math.min(idx, newTabs.length - 1);
-      const newActive = newTabs[newIdx];
+      // Switch to the neighbor tab (prefer left)
+      const newIdx = Math.max(0, idx - 1);
+      const targetTab = newTabs[newIdx];
       set({
         tabs: newTabs,
-        activeTabId: newActive.id,
-        // Project new active tab
-        messages: newActive.messages,
-        sessionId: newActive.sessionId,
-        isStreaming: newActive.isStreaming,
-        error: newActive.error,
-        totalInputTokens: newActive.totalInputTokens,
-        totalOutputTokens: newActive.totalOutputTokens,
+        activeTabId: targetTab.id,
+        messages: targetTab.messages,
+        sessionId: targetTab.sessionId,
+        isStreaming: targetTab.isStreaming,
+        error: targetTab.error,
+        totalInputTokens: targetTab.totalInputTokens,
+        totalOutputTokens: targetTab.totalOutputTokens,
       });
     } else {
       set({ tabs: newTabs });
@@ -642,6 +538,17 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
         messages: [...tab.messages, msg],
         totalInputTokens: tab.totalInputTokens + inputDelta,
         totalOutputTokens: tab.totalOutputTokens + outputDelta,
+      });
+    });
+  },
+
+  // Pi engine: update last message in-place (replace, not append — avoid duplicates on delta)
+  _updateLastMessage: (tabId: string, msg: ClaudeStreamMessage) => {
+    set((state) => {
+      const tab = state.tabs.find((t) => t.id === tabId);
+      if (!tab || tab.messages.length === 0) return {};
+      return applyTabUpdate(state, tabId, {
+        messages: [...tab.messages.slice(0, -1), msg],
       });
     });
   },

@@ -67,6 +67,7 @@ pub struct EngineCompleteEvent {
     pub engine: String,
     pub tab_id: String,
     pub success: bool,
+    pub generation: u64,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -78,15 +79,17 @@ pub struct EngineErrorEvent {
 
 // ─── Process State (shared across engines) ───
 
+type SharedChild = Arc<tokio::sync::Mutex<Option<Child>>>;
+
 #[derive(Clone)]
 pub struct EngineProcessState {
-    pub processes: Arc<Mutex<HashMap<String, Child>>>,
+    pub processes: Arc<tokio::sync::Mutex<HashMap<String, SharedChild>>>,
 }
 
 impl Default for EngineProcessState {
     fn default() -> Self {
         Self {
-            processes: Arc::new(Mutex::new(HashMap::new())),
+            processes: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }
     }
 }
@@ -101,8 +104,11 @@ pub async fn kill_process_for_window(state: &EngineProcessState, window_label: &
         .cloned()
         .collect();
     for key in keys_to_remove {
-        if let Some(mut child) = processes.remove(&key) {
-            let _ = child.kill().await;
+        if let Some(shared) = processes.remove(&key) {
+            let mut guard = shared.lock().await;
+            if let Some(mut child) = guard.take() {
+                let _ = child.kill().await;
+            }
         }
     }
 }
@@ -285,7 +291,6 @@ async fn spawn_pi_process(
     // On Windows, prevent console window flash
     #[cfg(target_os = "windows")]
     {
-        use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
@@ -294,20 +299,34 @@ async fn spawn_pi_process(
         format!("Failed to spawn Pi process: {}. Is Node.js installed?", e)
     })?;
 
-    // Send the prompt as JSON-RPC over stdin
-    let prompt_json = serde_json::json!({
-        "id": "1",
-        "type": "prompt",
-        "message": prompt,
-        "streamingBehavior": "steer"
-    });
-
-    if let Some(mut stdin) = child.stdin.take() {
+    // Send RPC commands over stdin: set_model → prompt
+    // Pi starts with a default session — no need for new_session
+    if let Some(stdin) = child.stdin.as_mut() {
         use tokio::io::AsyncWriteExt;
-        let payload = serde_json::to_string(&prompt_json).map_err(|e| e.to_string())?;
-        stdin.write_all(payload.as_bytes()).await.map_err(|e| e.to_string())?;
+
+        // 1. set_model (before new_session so session inherits model)
+        if let (Some(ref p), Some(ref m)) = (&provider, &model) {
+            let msg = serde_json::json!({
+                "id": "1",
+                "type": "set_model",
+                "provider": p,
+                "modelId": m,
+            });
+            let line = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+            stdin.write_all(line.as_bytes()).await.map_err(|e| e.to_string())?;
+            stdin.write_all(b"\n").await.map_err(|e| e.to_string())?;
+        }
+
+        // 2. prompt
+        let msg = serde_json::json!({
+            "id": "3",
+            "type": "prompt",
+            "message": prompt,
+            "streamingBehavior": "steer"
+        });
+        let line = serde_json::to_string(&msg).map_err(|e| e.to_string())?;
+        stdin.write_all(line.as_bytes()).await.map_err(|e| e.to_string())?;
         stdin.write_all(b"\n").await.map_err(|e| e.to_string())?;
-        stdin.shutdown().await.map_err(|e| e.to_string())?;
     }
 
     let stdout = child.stdout.take().ok_or("Failed to capture Pi stdout")?;
@@ -320,13 +339,18 @@ async fn spawn_pi_process(
         .processes
         .clone();
 
-    // Store child process
+    // Keep the child for safe waiting later (don't rely on shared map — new requests replace it)
+    let child_for_wait = Arc::new(Mutex::new(Some(child)));
     {
         let mut processes = process_arc.lock().await;
-        if let Some(mut existing) = processes.remove(&process_key) {
-            let _ = existing.kill().await;
+        if let Some(existing_arc) = processes.remove(&process_key) {
+            if let Some(mut existing_child) = existing_arc.lock().await.take() {
+                let _ = existing_child.kill().await;
+            }
         }
-        processes.insert(process_key.clone(), child);
+        // Store a reference count — we don't remove from map in wait task,
+        // only the NEXT spawn removes the previous entry.
+        processes.insert(process_key.clone(), child_for_wait.clone());
     }
 
     let stdout_reader = BufReader::new(stdout);
@@ -348,14 +372,17 @@ async fn spawn_pi_process(
                 tab_id_stdout, elapsed, line_count, line.len()
             );
 
-            let _ = win_stdout.emit(
+            match win_stdout.emit(
                 "engine-output",
                 EngineOutputEvent {
                     engine: "pi".to_string(),
                     tab_id: tab_id_stdout.clone(),
-                    data: line,
+                    data: line.clone(),
                 },
-            );
+            ) {
+                Ok(_) => {},
+                Err(e) => eprintln!("[pi-emit-error] [{}] failed to emit event: {}", tab_id_stdout, e),
+            }
         }
     });
 
@@ -382,17 +409,16 @@ async fn spawn_pi_process(
         }
     });
 
-    // Spawn wait task
-    let process_arc_wait = process_arc.clone();
-    let win_wait = window;
-    let process_key_wait = process_key;
+    // Spawn wait task — purely for cleanup, does NOT emit engine-complete.
+    // Completion is signaled via Pi's agent_end event. engine-complete from a
+    // stale wait task would race with a new request on the same tab.
     let tab_id_wait = tab_id;
     tokio::spawn(async move {
         let _ = stdout_task.await;
         let _ = stderr_task.await;
 
-        let mut processes = process_arc_wait.lock().await;
-        let success = if let Some(mut child) = processes.remove(&process_key_wait) {
+        let mut child_guard = child_for_wait.lock().await;
+        if let Some(mut child) = child_guard.take() {
             match child.wait().await {
                 Ok(status) => {
                     eprintln!(
@@ -401,7 +427,6 @@ async fn spawn_pi_process(
                         status,
                         start_time.elapsed().as_secs_f64()
                     );
-                    status.success()
                 }
                 Err(e) => {
                     eprintln!(
@@ -410,22 +435,9 @@ async fn spawn_pi_process(
                         e,
                         start_time.elapsed().as_secs_f64()
                     );
-                    false
                 }
             }
-        } else {
-            false
-        };
-        drop(processes);
-
-        let _ = win_wait.emit(
-            "engine-complete",
-            EngineCompleteEvent {
-                engine: "pi".to_string(),
-                tab_id: tab_id_wait,
-                success,
-            },
-        );
+        }
     });
 
     Ok(())
@@ -444,10 +456,6 @@ pub async fn get_available_engines() -> Result<Vec<EngineConfigSchema>, String> 
         providers: vec![],
         needs_auth: true,
     });
-
-    // Pi engine
-    let node_ok = find_node_binary().is_ok();
-    let pi_ok = find_pi_rpc_script().is_ok();
 
     engines.push(EngineConfigSchema {
         needs_binary: false,
@@ -546,14 +554,19 @@ pub async fn cancel_engine_execution(
     if engine == "pi" {
         let engine_state = window.state::<EngineProcessState>();
         let mut processes = engine_state.processes.lock().await;
-        if let Some(mut child) = processes.remove(&process_key) {
-            let _ = child.kill().await;
+        if let Some(shared) = processes.remove(&process_key) {
+            let mut guard = shared.lock().await;
+            if let Some(mut child) = guard.take() {
+                let _ = child.kill().await;
+            }
+            drop(guard);
             let _ = window.emit(
                 "engine-complete",
                 EngineCompleteEvent {
                     engine: "pi".to_string(),
                     tab_id,
                     success: false,
+                    generation: 0,
                 },
             );
         }
