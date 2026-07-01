@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { SlashCommandPicker, type SlashCommand } from "./slash-command-picker";
 import { EngineSelector } from "./engine-selector";
 import { EngineSettingsDialog } from "./engine-settings-dialog";
+import { useEngineStore } from "@/stores/engine-store";
 import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("chat-composer");
@@ -77,6 +78,11 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
   const effortLevel = useClaudeChatStore((s) => s.effortLevel);
   const setEffortLevel = useClaudeChatStore((s) => s.setEffortLevel);
   const activeTabId = useClaudeChatStore((s) => s.activeTabId);
+
+  const engineActiveEngine = useEngineStore((s) => s.activeEngine);
+  const engineSelectedModel = useEngineStore((s) => s.selectedModel);
+  const engineProviders = useEngineStore((s) => s.providers);
+  const engineSelectedProvider = useEngineStore((s) => s.selectedProvider);
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -690,94 +696,102 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
               zIndex: 9999,
             }}
           >
-            {/* Models */}
-            <div className="p-1">
-              <div className="px-2 py-1 font-medium text-muted-foreground text-xs">
-                Model
-              </div>
-              {[
-                {
-                  id: "sonnet" as const,
-                  name: "Sonnet",
-                  desc: "Fast, efficient for most tasks",
-                  icon: <ZapIcon className="size-3.5" />,
-                },
-                {
-                  id: "opus" as const,
-                  name: "Opus",
-                  desc: "Most capable, complex reasoning",
-                  icon: <SparklesIcon className="size-3.5" />,
-                },
-                {
-                  id: "haiku" as const,
-                  name: "Haiku",
-                  desc: "Fastest, simple tasks",
-                  icon: <RabbitIcon className="size-3.5" />,
-                },
-                {
-                  id: "opusplan" as const,
-                  name: "OpusPlan",
-                  desc: "Opus for planning, Sonnet for execution",
-                  icon: <LayersIcon className="size-3.5" />,
-                },
-              ].map((m) => (
-                <button
-                  key={m.id}
-                  className={cn(
-                    "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors",
-                    selectedModel === m.id
-                      ? "bg-accent text-accent-foreground"
-                      : "hover:bg-muted",
-                  )}
-                  onClick={() => setSelectedModel(m.id)}
-                >
-                  {m.icon}
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium text-xs">{m.name}</div>
-                    <div className="truncate text-muted-foreground text-xs">
-                      {m.desc}
-                    </div>
+            {engineActiveEngine === "claude" ? (
+              <>
+                {/* Claude models */}
+                <div className="p-1">
+                  <div className="px-2 py-1 font-medium text-muted-foreground text-xs">
+                    Model
                   </div>
-                  {selectedModel === m.id && (
-                    <CheckIcon className="size-3 shrink-0" />
-                  )}
-                </button>
-              ))}
-            </div>
+                  {[
+                    {
+                      id: "sonnet" as const,
+                      name: "Sonnet",
+                      desc: "Fast, efficient for most tasks",
+                      icon: <ZapIcon className="size-3.5" />,
+                    },
+                    {
+                      id: "opus" as const,
+                      name: "Opus",
+                      desc: "Most capable, complex reasoning",
+                      icon: <SparklesIcon className="size-3.5" />,
+                    },
+                    {
+                      id: "haiku" as const,
+                      name: "Haiku",
+                      desc: "Fastest, simple tasks",
+                      icon: <RabbitIcon className="size-3.5" />,
+                    },
+                    {
+                      id: "opusplan" as const,
+                      name: "OpusPlan",
+                      desc: "Opus for planning, Sonnet for execution",
+                      icon: <LayersIcon className="size-3.5" />,
+                    },
+                  ].map((m) => (
+                    <button
+                      key={m.id}
+                      className={cn(
+                        "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors",
+                        selectedModel === m.id
+                          ? "bg-accent text-accent-foreground"
+                          : "hover:bg-muted",
+                      )}
+                      onClick={() => setSelectedModel(m.id)}
+                    >
+                      {m.icon}
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-xs">{m.name}</div>
+                        <div className="truncate text-muted-foreground text-xs">
+                          {m.desc}
+                        </div>
+                      </div>
+                      {selectedModel === m.id && (
+                        <CheckIcon className="size-3 shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                </div>
 
-            <div className="border-border border-t" />
+                <div className="border-border border-t" />
 
-            {/* Effort level */}
-            <div className="p-2">
-              <div className="mb-1.5 flex items-center justify-between px-1">
-                <span className="font-medium text-muted-foreground text-xs">
-                  Effort
-                </span>
-                <span className="text-muted-foreground text-xs">
-                  {effortLevel === "low"
-                    ? "Low"
-                    : effortLevel === "medium"
-                      ? "Medium"
-                      : "High"}
-                </span>
+                {/* Claude effort level */}
+                <div className="p-2">
+                  <div className="mb-1.5 flex items-center justify-between px-1">
+                    <span className="font-medium text-muted-foreground text-xs">
+                      Effort
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      {effortLevel === "low"
+                        ? "Low"
+                        : effortLevel === "medium"
+                          ? "Medium"
+                          : "High"}
+                    </span>
+                  </div>
+                  <div className="flex gap-1">
+                    {(["low", "medium", "high"] as const).map((level) => (
+                      <button
+                        key={level}
+                        className={cn(
+                          "flex-1 rounded-md py-1 text-center font-medium text-xs transition-colors",
+                          effortLevel === level
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/80",
+                        )}
+                        onClick={() => setEffortLevel(level)}
+                      >
+                        {level === "low" ? "L" : level === "medium" ? "M" : "H"}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="p-4 text-center text-muted-foreground text-xs">
+                Configure provider &amp; model in Engine Settings
               </div>
-              <div className="flex gap-1">
-                {(["low", "medium", "high"] as const).map((level) => (
-                  <button
-                    key={level}
-                    className={cn(
-                      "flex-1 rounded-md py-1 text-center font-medium text-xs transition-colors",
-                      effortLevel === level
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground hover:bg-muted/80",
-                    )}
-                    onClick={() => setEffortLevel(level)}
-                  >
-                    {level === "low" ? "L" : level === "medium" ? "M" : "H"}
-                  </button>
-                ))}
-              </div>
-            </div>
+            )}
           </div>,
           document.body,
         )}
@@ -906,22 +920,36 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
               onClick={() => setModelPickerOpen((v) => !v)}
               className="flex items-center gap-1.5 rounded-md px-2 py-1 text-muted-foreground text-xs transition-colors hover:bg-muted hover:text-foreground"
             >
-              <span>
-                {selectedModel === "sonnet"
-                  ? "Sonnet"
-                  : selectedModel === "opus"
-                    ? "Opus"
-                    : selectedModel === "haiku"
-                      ? "Haiku"
-                      : "OpusPlan"}
-              </span>
-              <span className="text-muted-foreground/60">
-                {effortLevel === "low"
-                  ? "L"
-                  : effortLevel === "medium"
-                    ? "M"
-                    : "H"}
-              </span>
+              {engineActiveEngine === "claude" ? (
+                <>
+                  <span>
+                    {selectedModel === "sonnet"
+                      ? "Sonnet"
+                      : selectedModel === "opus"
+                        ? "Opus"
+                        : selectedModel === "haiku"
+                          ? "Haiku"
+                          : "OpusPlan"}
+                  </span>
+                  <span className="text-muted-foreground/60">
+                    {effortLevel === "low"
+                      ? "L"
+                      : effortLevel === "medium"
+                        ? "M"
+                        : "H"}
+                  </span>
+                </>
+              ) : (
+                <span className="max-w-[100px] truncate">
+                  {engineSelectedModel
+                    ? (() => {
+                        const p = engineProviders.find((x) => x.id === engineSelectedProvider);
+                        const m = p?.models.find((x) => x.id === engineSelectedModel);
+                        return m?.name || engineSelectedModel;
+                      })()
+                    : "Select model"}
+                </span>
+              )}
               <ChevronDownIcon className="size-3" />
             </button>
           </div>

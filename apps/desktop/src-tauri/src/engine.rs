@@ -136,8 +136,8 @@ pub fn get_pi_providers() -> Vec<ProviderInfo> {
             name: "DeepSeek".to_string(),
             needs_api_key: true,
             models: vec![
-                ModelInfo { id: "deepseek-chat".to_string(), name: "DeepSeek Chat".to_string(), supports_thinking: false },
-                ModelInfo { id: "deepseek-reasoner".to_string(), name: "DeepSeek Reasoner".to_string(), supports_thinking: true },
+                ModelInfo { id: "deepseek-v4-flash".to_string(), name: "DeepSeek V4 Flash".to_string(), supports_thinking: false },
+                ModelInfo { id: "deepseek-v4-pro".to_string(), name: "DeepSeek V4 Pro".to_string(), supports_thinking: true },
             ],
         },
         ProviderInfo {
@@ -213,12 +213,12 @@ fn find_pi_rpc_script() -> Result<String, String> {
     // Check if pi is installed globally
     if let Ok(path) = which::which("pi") {
         let pi_dir = path.parent().unwrap_or(std::path::Path::new("/"));
-        // Look for rpc-entry.ts relative to pi binary
+        // Look for cli.js relative to pi binary
         let candidates = [
-            // npm global: pi -> ../lib/node_modules/@earendil-works/pi/dist/rpc-entry.js
-            pi_dir.join("../lib/node_modules/@earendil-works/pi/dist/rpc-entry.js"),
+            // npm global: pi -> ../lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js
+            pi_dir.join("../lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"),
             // Direct in node_modules
-            pi_dir.join("node_modules/@earendil-works/pi/dist/rpc-entry.js"),
+            pi_dir.join("node_modules/@earendil-works/pi-coding-agent/dist/cli.js"),
         ];
         for candidate in &candidates {
             if candidate.exists() {
@@ -229,13 +229,13 @@ fn find_pi_rpc_script() -> Result<String, String> {
 
     // Check home directory for local install
     if let Some(home) = dirs::home_dir() {
-        let local_path = home.join("node_modules/@earendil-works/pi/dist/rpc-entry.js");
+        let local_path = home.join("node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
         if local_path.exists() {
             return Ok(local_path.to_string_lossy().to_string());
         }
     }
 
-    Err("Pi Agent Engine not found. Run: npm install -g @earendil-works/pi".to_string())
+    Err("Pi Agent Engine not found. Run: npm install -g @earendil-works/pi-coding-agent".to_string())
 }
 
 /// Spawn Pi RPC process and stream output via Tauri events.

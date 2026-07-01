@@ -52,6 +52,18 @@ export const EngineSelector: FC = () => {
   const modelLabel =
     activeEngine === "pi" && currentModel ? currentModel.name : "Claude CLI";
 
+  // Switch to Claude
+  const switchToClaude = () => {
+    setActiveEngine("claude");
+    setOpen(false);
+  };
+
+  // Switch to Pi
+  const switchToPi = () => {
+    setActiveEngine("pi");
+    setOpen(false);
+  };
+
   return (
     <div className="relative" ref={dropdownRef}>
       <button
@@ -69,140 +81,153 @@ export const EngineSelector: FC = () => {
           <ZapIcon className="size-3 text-blue-500" />
         )}
         <span className="font-medium text-muted-foreground">
-          {activeEngine === "claude" ? "Claude" : providerLabel}
+          {activeEngine === "claude" ? "Claude CLI" : "Pi Agent Engine"}
         </span>
-        {activeEngine === "pi" && (
-          <>
-            <span className="text-muted-foreground">·</span>
-            <span className="max-w-[120px] truncate">{modelLabel}</span>
-          </>
-        )}
         <ChevronDownIcon className="size-3 text-muted-foreground" />
       </button>
 
       {open && (
         <div className="absolute bottom-full left-0 z-50 mb-1 w-64 rounded-lg border bg-background shadow-lg">
-          {/* Engine selector */}
-          <div className="border-border border-b p-1.5">
-            <div className="px-2 py-1 text-muted-foreground text-xs">
-              Engine
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveEngine("claude");
-                setOpen(false);
-              }}
-              className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
-                "hover:bg-muted",
-                activeEngine === "claude" && "bg-muted",
-              )}
-            >
-              <CpuIcon className="size-3.5 text-muted-foreground" />
-              <span className="flex-1 text-left">Claude CLI</span>
-              {activeEngine === "claude" && (
-                <CheckIcon className="size-3.5 text-primary" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setActiveEngine("pi");
-                setOpen(false);
-              }}
-              className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
-                "hover:bg-muted",
-                activeEngine === "pi" && "bg-muted",
-              )}
-            >
-              <ZapIcon className="size-3.5 text-blue-500" />
-              <span className="flex-1 text-left">Pi Agent Engine</span>
-              {activeEngine === "pi" && (
-                <CheckIcon className="size-3.5 text-primary" />
-              )}
-            </button>
-          </div>
-
-          {/* Pi provider/model selector */}
-          {activeEngine === "pi" && providers.length > 0 && (
-            <div className="p-1.5">
-              <div className="px-2 py-1 text-muted-foreground text-xs">
-                Provider
-              </div>
-              {providers.map((provider) => (
+          {activeEngine === "claude" ? (
+            /* ─── Claude view: engine switcher only ─── */
+            <>
+              <div className="border-border border-b p-1.5">
+                <div className="px-2 py-1 text-muted-foreground text-xs">
+                  Engine
+                </div>
                 <button
-                  key={provider.id}
                   type="button"
-                  onClick={() => {
-                    setSelectedProvider(provider.id);
-                    if (provider.models.length > 0) {
-                      setSelectedModel(provider.models[0].id);
-                    }
-                  }}
+                  onClick={switchToClaude}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
                     "hover:bg-muted",
-                    selectedProvider === provider.id && "bg-muted",
+                    activeEngine === "claude" && "bg-muted",
                   )}
                 >
-                  <span className="flex-1 text-left">{provider.name}</span>
-                  {selectedProvider === provider.id && (
-                    <CheckIcon className="size-3.5 text-primary" />
-                  )}
+                  <CpuIcon className="size-3.5 text-muted-foreground" />
+                  <span className="flex-1 text-left">Claude CLI</span>
+                  <CheckIcon className="size-3.5 text-primary" />
                 </button>
-              ))}
+                <button
+                  type="button"
+                  onClick={switchToPi}
+                  className={cn(
+                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+                    "hover:bg-muted",
+                  )}
+                >
+                  <ZapIcon className="size-3.5 text-blue-500" />
+                  <span className="flex-1 text-left">Pi Agent Engine</span>
+                </button>
+              </div>
+              <div className="border-border border-t p-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettingsOpen(true);
+                    setOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted"
+                >
+                  <SettingsIcon className="size-3.5 text-muted-foreground" />
+                  <span>Engine Settings</span>
+                </button>
+              </div>
+            </>
+          ) : (
+            /* ─── Pi view: provider + model directly ─── */
+            <>
+              <div className="border-border border-b px-3 py-2 font-medium text-muted-foreground text-xs">
+                Pi Agent Engine
+              </div>
 
-              {currentProvider && currentProvider.models.length > 0 && (
-                <>
-                  <div className="mt-1 border-border border-t px-2 py-1 text-muted-foreground text-xs">
-                    Model
+              {providers.length > 0 && (
+                <div className="p-1.5">
+                  <div className="px-2 py-1 text-muted-foreground text-xs">
+                    Provider
                   </div>
-                  {currentProvider.models.map((model) => (
+                  {providers.map((provider) => (
                     <button
-                      key={model.id}
+                      key={provider.id}
                       type="button"
                       onClick={() => {
-                        setSelectedModel(model.id);
-                        setOpen(false);
+                        setSelectedProvider(provider.id);
+                        if (provider.models.length > 0) {
+                          setSelectedModel(provider.models[0].id);
+                        }
                       }}
                       className={cn(
                         "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
                         "hover:bg-muted",
-                        selectedModel === model.id && "bg-muted",
+                        selectedProvider === provider.id && "bg-muted",
                       )}
                     >
-                      <span className="flex-1 text-left">{model.name}</span>
-                      {model.supports_thinking && (
-                        <span className="rounded bg-blue-500/10 px-1 text-[10px] text-blue-500">
-                          Thinking
-                        </span>
-                      )}
-                      {selectedModel === model.id && (
+                      <span className="flex-1 text-left">{provider.name}</span>
+                      {selectedProvider === provider.id && (
                         <CheckIcon className="size-3.5 text-primary" />
                       )}
                     </button>
                   ))}
-                </>
-              )}
-            </div>
-          )}
 
-          {/* Settings button */}
-          <div className="border-border border-t p-1.5">
-            <button
-              type="button"
-              onClick={() => {
-                setSettingsOpen(true);
-                setOpen(false);
-              }}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted"
-            >
-              <SettingsIcon className="size-3.5 text-muted-foreground" />
-              <span>Engine Settings</span>
-            </button>
-          </div>
+                  {currentProvider && currentProvider.models.length > 0 && (
+                    <>
+                      <div className="mt-1 border-border border-t px-2 py-1 text-muted-foreground text-xs">
+                        Model
+                      </div>
+                      {currentProvider.models.map((model) => (
+                        <button
+                          key={model.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedModel(model.id);
+                            setOpen(false);
+                          }}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors",
+                            "hover:bg-muted",
+                            selectedModel === model.id && "bg-muted",
+                          )}
+                        >
+                          <span className="flex-1 text-left">{model.name}</span>
+                          {model.supports_thinking && (
+                            <span className="rounded bg-blue-500/10 px-1 text-[10px] text-blue-500">
+                              Thinking
+                            </span>
+                          )}
+                          {selectedModel === model.id && (
+                            <CheckIcon className="size-3.5 text-primary" />
+                          )}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Switch engine row */}
+              <div className="border-border border-t p-1.5">
+                <button
+                  type="button"
+                  onClick={switchToClaude}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted"
+                >
+                  <CpuIcon className="size-3.5 text-muted-foreground" />
+                  <span>Switch to Claude CLI</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSettingsOpen(true);
+                    setOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted"
+                >
+                  <SettingsIcon className="size-3.5 text-muted-foreground" />
+                  <span>Engine Settings</span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

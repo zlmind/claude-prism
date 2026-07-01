@@ -1118,11 +1118,11 @@ fn find_git_bash() -> Option<String> {
 /// Returns the install path if found, None otherwise.
 #[cfg(target_os = "windows")]
 fn find_git_install_dir_from_registry() -> Option<String> {
-    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::enums::*;
     use winreg::RegKey;
 
     // Check HKLM\SOFTWARE\GitForWindows
-    if let Ok(git_key) = HKEY_LOCAL_MACHINE.open_subkey("SOFTWARE\\GitForWindows") {
+    if let Ok(git_key) = RegKey::predef(HKEY_LOCAL_MACHINE).open_subkey("SOFTWARE\\GitForWindows") {
         if let Ok(install_dir) = git_key.get_value::<String, _>("InstallPath") {
             if !install_dir.is_empty() {
                 return Some(install_dir);
@@ -1131,7 +1131,7 @@ fn find_git_install_dir_from_registry() -> Option<String> {
     }
 
     // Check HKCU\SOFTWARE\GitForWindows
-    if let Ok(git_key) = HKEY_CURRENT_USER.open_subkey("SOFTWARE\\GitForWindows") {
+    if let Ok(git_key) = RegKey::predef(HKEY_CURRENT_USER).open_subkey("SOFTWARE\\GitForWindows") {
         if let Ok(install_dir) = git_key.get_value::<String, _>("InstallPath") {
             if !install_dir.is_empty() {
                 return Some(install_dir);
