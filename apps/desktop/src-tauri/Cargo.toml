@@ -36,6 +36,7 @@ keyring = { version = "3", features = ["apple-native", "secret-service", "window
 # Tectonic LaTeX compiler removed to save ~500MB of C dependencies
 flate2 = "1"
 tar = "0.4"
+zip = "2"
 
 [lints.clippy]
 unwrap_used = "deny"
