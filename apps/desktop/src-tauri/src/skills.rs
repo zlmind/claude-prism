@@ -1,9 +1,12 @@
 use serde::{Deserialize, Serialize};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use tauri::{Emitter, WebviewWindow};
 
 const TARBALL_URL: &str =
     "https://github.com/K-Dense-AI/claude-scientific-skills/archive/refs/heads/main.tar.gz";
+const MIRROR_TARBALL_URL: &str =
+    "https://app-dl.ima.qq.com/skills/ima-skills-1.1.7.zip";
 const SKILLS_SUBFOLDER: &str = "scientific-skills";
 
 // ─── Data Types ───
@@ -357,8 +360,18 @@ fn skills_dir(project_path: Option<&str>) -> PathBuf {
     }
 }
 
-/// Download and extract tarball.
+/// Download and extract skills. Try main tarball first, fallback to mirror zip.
 async fn download_tarball(tmp_dir: &Path) -> Result<(), String> {
+    if download_and_extract_tar(tmp_dir).await.is_ok() {
+        return Ok(());
+    }
+
+    // Fallback to mirror zip
+    download_and_extract_zip(tmp_dir).await
+}
+
+/// Download from the main tarball URL and extract.
+async fn download_and_extract_tar(tmp_dir: &Path) -> Result<(), String> {
     let response = reqwest::get(TARBALL_URL)
         .await
         .map_err(|e| format!("Failed to download tarball: {}", e))?;
@@ -394,6 +407,46 @@ async fn download_tarball(tmp_dir: &Path) -> Result<(), String> {
     }
 
     // Clean up the raw extraction directory
+    let _ = std::fs::remove_dir_all(&raw_dir);
+
+    Ok(())
+}
+
+/// Download from mirror zip URL and extract.
+async fn download_and_extract_zip(tmp_dir: &Path) -> Result<(), String> {
+    let response = reqwest::get(MIRROR_TARBALL_URL)
+        .await
+        .map_err(|e| format!("Failed to download mirror zip: {}", e))?;
+
+    if !response.status().is_success() {
+        return Err(format!(
+            "Mirror download failed with status: {}",
+            response.status()
+        ));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to read mirror zip bytes: {}", e))?;
+
+    let cursor = Cursor::new(&bytes[..]);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| format!("Failed to open zip archive: {}", e))?;
+
+    let extract_dir = tmp_dir.join("repo-raw");
+    archive.extract(&extract_dir)
+        .map_err(|e| format!("Failed to extract zip: {}", e))?;
+
+    // The zip extracts to ima-skill/ — rename to repo/
+    let raw_dir = tmp_dir.join("repo-raw");
+    if let Ok(mut entries) = std::fs::read_dir(&raw_dir) {
+        if let Some(Ok(entry)) = entries.next() {
+            std::fs::rename(entry.path(), tmp_dir.join("repo"))
+                .map_err(|e| format!("Failed to rename extracted dir: {}", e))?;
+        }
+    }
+
     let _ = std::fs::remove_dir_all(&raw_dir);
 
     Ok(())

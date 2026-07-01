@@ -515,13 +515,12 @@ export function Sidebar() {
     // Auto-append .md if no extension provided
     const finalName = /\.\w+$/.test(name) ? name : `${name}.md`;
     const lower = finalName.toLowerCase();
-    const type: "tex" | "image" | "other" = /\.(png|jpg|jpeg|gif|svg|bmp|webp)$/.test(
-      lower,
-    )
-      ? "image"
-      : lower.endsWith(".md") || lower.endsWith(".markdown")
-        ? "other"
-        : "tex";
+    const type: "tex" | "image" | "other" =
+      /\.(png|jpg|jpeg|gif|svg|bmp|webp)$/.test(lower)
+        ? "image"
+        : lower.endsWith(".md") || lower.endsWith(".markdown")
+          ? "other"
+          : "tex";
     createNewFile(finalName, type, addDialogFolder);
     setNewFileName("");
     setNameError("");
