@@ -257,7 +257,13 @@ fn find_claude_binary() -> Result<String, String> {
             if let Ok(nvm_home) = std::env::var("NVM_HOME") {
                 // nvm symlink lives under NVM_SYMLINK (default: C:\Program Files\nodejs)
                 if let Ok(nvm_symlink) = std::env::var("NVM_SYMLINK") {
-                    let p = PathBuf::from(&nvm_symlink).join("claude.cmd");
+                    let symlink_dir = PathBuf::from(&nvm_symlink);
+                    // Check for native exe first, then .cmd wrapper
+                    let native_exe = symlink_dir.join("node_modules").join("@anthropic-ai").join("claude-code").join("bin").join("claude.exe");
+                    if native_exe.exists() {
+                        return Ok(native_exe.to_string_lossy().to_string());
+                    }
+                    let p = symlink_dir.join("claude.cmd");
                     if p.exists() {
                         return Ok(p.to_string_lossy().to_string());
                     }
@@ -266,7 +272,17 @@ fn find_claude_binary() -> Result<String, String> {
                 if let Ok(entries) = std::fs::read_dir(&nvm_home) {
                     let mut candidates: Vec<PathBuf> = entries
                         .filter_map(|e| e.ok())
-                        .map(|e| e.path().join("claude.cmd"))
+                        .flat_map(|e| {
+                            let dir = e.path();
+                            let mut paths = Vec::new();
+                            // Native exe takes priority
+                            let native_exe = dir.join("node_modules").join("@anthropic-ai").join("claude-code").join("bin").join("claude.exe");
+                            if native_exe.exists() {
+                                paths.push(native_exe);
+                            }
+                            paths.push(dir.join("claude.cmd"));
+                            paths
+                        })
                         .filter(|p| p.exists())
                         .collect();
                     candidates.sort();
@@ -322,7 +338,8 @@ fn find_claude_binary() -> Result<String, String> {
             home.join("scoop")
                 .join("shims")
                 .join("claude.cmd"),
-            // Standard Node.js install
+            // Standard Node.js install - check native exe first
+            PathBuf::from(r"C:\Program Files\nodejs\node_modules\@anthropic-ai\claude-code\bin\claude.exe"),
             PathBuf::from(r"C:\Program Files\nodejs\claude.cmd"),
         ];
 
@@ -618,6 +635,11 @@ fn resolve_cmd_to_node(program: &str) -> (String, Vec<String>) {
             }
         };
         return (node, vec![cli_js.to_string_lossy().to_string()]);
+    }
+    // Check for native claude.exe next to the .cmd file (native installer)
+    let native_exe = cmd_dir.join("node_modules").join("@anthropic-ai").join("claude-code").join("bin").join("claude.exe");
+    if native_exe.exists() {
+        return (native_exe.to_string_lossy().to_string(), vec![]);
     }
     // Fallback: use cmd.exe /C (may have issues with special chars in args)
     (
@@ -1043,10 +1065,12 @@ fn find_git_bash() -> Option<String> {
         }
     }
 
-    // 2. Common install locations
+    // 2. Common install locations - check both bin and usr\bin directories
     let candidates = [
         r"C:\Program Files\Git\bin\bash.exe",
         r"C:\Program Files (x86)\Git\bin\bash.exe",
+        r"C:\Program Files\Git\usr\bin\bash.exe",
+        r"C:\Program Files (x86)\Git\usr\bin\bash.exe",
     ];
     for path in &candidates {
         if PathBuf::from(path).is_file() {
@@ -1059,17 +1083,60 @@ fn find_git_bash() -> Option<String> {
         // git.exe is typically at Git/cmd/git.exe → bash.exe at Git/bin/bash.exe
         if let Some(cmd_dir) = git_path.parent() {
             if let Some(git_root) = cmd_dir.parent() {
-                let bash = git_root.join("bin").join("bash.exe");
-                if bash.is_file() {
-                    return Some(bash.to_string_lossy().to_string());
+                // Check both bin and usr\bin directories
+                let bin_dirs = ["bin", r"usr\bin"];
+                for bin_dir in &bin_dirs {
+                    let bash = git_root.join(bin_dir).join("bash.exe");
+                    if bash.is_file() {
+                        return Some(bash.to_string_lossy().to_string());
+                    }
                 }
             }
         }
     }
 
-    // 4. bash directly on PATH
+    // 4. Read Git install path from Windows registry
+    if let Some(git_install_dir) = find_git_install_dir_from_registry() {
+        let bin_dirs = ["bin", r"usr\bin"];
+        for bin_dir in &bin_dirs {
+            let bash = PathBuf::from(&git_install_dir).join(bin_dir).join("bash.exe");
+            if bash.is_file() {
+                return Some(bash.to_string_lossy().to_string());
+            }
+        }
+    }
+
+    // 5. bash directly on PATH
     if let Ok(bash_path) = which::which("bash") {
         return Some(bash_path.to_string_lossy().to_string());
+    }
+
+    None
+}
+
+/// Read Git for Windows install directory from Windows registry.
+/// Returns the install path if found, None otherwise.
+#[cfg(target_os = "windows")]
+fn find_git_install_dir_from_registry() -> Option<String> {
+    use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
+    use winreg::RegKey;
+
+    // Check HKLM\SOFTWARE\GitForWindows
+    if let Ok(git_key) = HKEY_LOCAL_MACHINE.open_subkey("SOFTWARE\\GitForWindows") {
+        if let Ok(install_dir) = git_key.get_value::<String, _>("InstallPath") {
+            if !install_dir.is_empty() {
+                return Some(install_dir);
+            }
+        }
+    }
+
+    // Check HKCU\SOFTWARE\GitForWindows
+    if let Ok(git_key) = HKEY_CURRENT_USER.open_subkey("SOFTWARE\\GitForWindows") {
+        if let Ok(install_dir) = git_key.get_value::<String, _>("InstallPath") {
+            if !install_dir.is_empty() {
+                return Some(install_dir);
+            }
+        }
     }
 
     None
