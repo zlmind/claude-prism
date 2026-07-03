@@ -63,7 +63,7 @@ interface EngineErrorPayload {
  * keyed by tab_id so multiple tabs can stream concurrently.
  */
 export function useClaudeEvents() {
-  console.log('[useClaudeEvents] hook mounted');
+  console.log("[useClaudeEvents] hook mounted");
 
   // Per-tab mutable state stored in refs so the long-lived listeners
   // always read the latest values without needing to be re-created.
@@ -148,13 +148,13 @@ export function useClaudeEvents() {
       const { tab_id: tabId, data } = payload;
 
       // Log raw data for debugging
-      console.log('[pi-raw]', tabId, data.slice(0, 300));
+      console.log("[pi-raw]", tabId, data.slice(0, 300));
 
       let piMsg: any;
       try {
         piMsg = JSON.parse(data);
       } catch (e) {
-        console.error('[pi-parse-error]', e, data);
+        console.error("[pi-parse-error]", e, data);
         return;
       }
 
@@ -190,7 +190,9 @@ export function useClaudeEvents() {
         const tab = chatStore.tabs.find((t) => t.id === tabId);
         if (!tab) return;
 
-        const assistantMsg: ClaudeStreamMessage & { _piAccumulating?: boolean } = {
+        const assistantMsg: ClaudeStreamMessage & {
+          _piAccumulating?: boolean;
+        } = {
           type: "assistant",
           message: { content: [{ type: "text", text: "" }] },
           _piAccumulating: true,
@@ -206,10 +208,15 @@ export function useClaudeEvents() {
 
         const lastMsg = tab.messages[tab.messages.length - 1];
         if (lastMsg?.type === "assistant" && lastMsg._piAccumulating) {
-          const textBlock = lastMsg.message!.content!.find(b => b.type === "text");
+          const textBlock = lastMsg.message!.content!.find(
+            (b) => b.type === "text",
+          );
           if (textBlock) {
             textBlock.text = (textBlock.text || "") + text;
-            chatStore._updateLastMessage(tabId, { ...lastMsg, _piAccumulating: true });
+            chatStore._updateLastMessage(tabId, {
+              ...lastMsg,
+              _piAccumulating: true,
+            });
           }
         }
       } else if (actualMsg.type === "text_end") {
@@ -219,7 +226,10 @@ export function useClaudeEvents() {
 
         const lastMsg = tab.messages[tab.messages.length - 1];
         if (lastMsg?.type === "assistant" && lastMsg._piAccumulating) {
-          chatStore._updateLastMessage(tabId, { ...lastMsg, _piAccumulating: false });
+          chatStore._updateLastMessage(tabId, {
+            ...lastMsg,
+            _piAccumulating: false,
+          });
         }
       } else if (actualMsg.type === "thinking_start") {
         const chatStore = useClaudeChatStore.getState();
@@ -229,9 +239,14 @@ export function useClaudeEvents() {
         const lastMsg = tab.messages[tab.messages.length - 1];
         if (lastMsg?.type === "assistant" && lastMsg._piAccumulating) {
           lastMsg.message!.content!.push({ type: "thinking", thinking: "" });
-          chatStore._updateLastMessage(tabId, { ...lastMsg, _piAccumulating: true });
+          chatStore._updateLastMessage(tabId, {
+            ...lastMsg,
+            _piAccumulating: true,
+          });
         } else {
-          const assistantMsg: ClaudeStreamMessage & { _piAccumulating?: boolean } = {
+          const assistantMsg: ClaudeStreamMessage & {
+            _piAccumulating?: boolean;
+          } = {
             type: "assistant",
             message: { content: [{ type: "thinking", thinking: "" }] },
             _piAccumulating: true,
@@ -248,27 +263,40 @@ export function useClaudeEvents() {
 
         const lastMsg = tab.messages[tab.messages.length - 1];
         if (lastMsg?.type === "assistant" && lastMsg._piAccumulating) {
-          const thinkingBlock = lastMsg.message!.content!.find(b => b.type === "thinking");
+          const thinkingBlock = lastMsg.message!.content!.find(
+            (b) => b.type === "thinking",
+          );
           if (thinkingBlock) {
             thinkingBlock.thinking = (thinkingBlock.thinking || "") + thinking;
-            chatStore._updateLastMessage(tabId, { ...lastMsg, _piAccumulating: true });
+            chatStore._updateLastMessage(tabId, {
+              ...lastMsg,
+              _piAccumulating: true,
+            });
           }
         }
       } else if (actualMsg.type === "thinking_end") {
         // No-op
-      } else if (actualMsg.type === "message_end" || actualMsg.type === "turn_end") {
+      } else if (
+        actualMsg.type === "message_end" ||
+        actualMsg.type === "turn_end"
+      ) {
         const chatStore = useClaudeChatStore.getState();
         const tab = chatStore.tabs.find((t) => t.id === tabId);
         if (!tab) return;
 
         const lastMsg = tab.messages[tab.messages.length - 1];
         if (lastMsg?.type === "assistant" && lastMsg._piAccumulating) {
-          chatStore._updateLastMessage(tabId, { ...lastMsg, _piAccumulating: false });
+          chatStore._updateLastMessage(tabId, {
+            ...lastMsg,
+            _piAccumulating: false,
+          });
         }
       } else if (piMsg.type === "agent_end") {
         // Agent end - this is Pi's completion signal (NOT "response" which is just an ACK)
         const success = piMsg.success !== false;
-        console.log(`[pi-handleComplete] [${tabId}] agent_end calling handleComplete success=${success}`);
+        console.log(
+          `[pi-handleComplete] [${tabId}] agent_end calling handleComplete success=${success}`,
+        );
         log.info(`[pi] [${tabId}] agent_end complete: success=${success}`);
 
         // Trigger completion - this will set isStreaming=false and do cleanup
@@ -615,12 +643,17 @@ export function useClaudeEvents() {
       listenersRef.current.push(unlistenError);
 
       // ── Pi Engine event listeners ──
-      console.log('[useClaudeEvents] Setting up Pi engine event listeners...');
+      console.log("[useClaudeEvents] Setting up Pi engine event listeners...");
 
       const unlistenEngineOutput = await listen<EngineOutputPayload>(
         "engine-output",
         (event) => {
-          console.log('[engine-output]', event.payload.engine, event.payload.tab_id, event.payload.data.slice(0, 100));
+          console.log(
+            "[engine-output]",
+            event.payload.engine,
+            event.payload.tab_id,
+            event.payload.data.slice(0, 100),
+          );
           if (!cancelled) {
             const { engine, tab_id: tabId, data } = event.payload;
             if (engine === "pi") {

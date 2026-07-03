@@ -383,15 +383,20 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
         }
 
         // Build context from previous messages for Pi (new process each time)
-        const prevMessages = state.tabs.find(t => t.id === activeTabId)?.messages || [];
+        const prevMessages =
+          state.tabs.find((t) => t.id === activeTabId)?.messages || [];
         let fullPrompt = prompt;
         if (prevMessages.length > 0) {
           // Include conversation history as context
           const history = prevMessages
-            .filter(m => m.type === "user" || m.type === "assistant")
-            .map(m => {
+            .filter((m) => m.type === "user" || m.type === "assistant")
+            .map((m) => {
               const role = m.type === "user" ? "User" : "Assistant";
-              const text = m.message?.content?.map(c => c.text || "").filter(Boolean).join("\n") || "";
+              const text =
+                m.message?.content
+                  ?.map((c) => c.text || "")
+                  .filter(Boolean)
+                  .join("\n") || "";
               return `[${role}]:\n${text}`;
             })
             .join("\n\n");
@@ -456,7 +461,10 @@ export const useClaudeChatStore = create<ClaudeChatState>()((set, get) => ({
       await invoke("cancel_claude_execution", { tabId: activeTabId });
     }
     set((s) => ({
-      ...applyTabUpdate(s, activeTabId, { isStreaming: false, error: "Cancelled" }),
+      ...applyTabUpdate(s, activeTabId, {
+        isStreaming: false,
+        error: "Cancelled",
+      }),
       _cancelledByUser: true,
     }));
     log.info("execution cancelled by user", { tab: activeTabId });
