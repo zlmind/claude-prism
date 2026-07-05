@@ -125,7 +125,7 @@ export function SkillCard({
       {description && (
         <p
           className={cn(
-            "mt-1.5 pl-[18px] text-xs text-muted-foreground leading-relaxed",
+            "mt-1.5 pl-[18px] text-muted-foreground text-xs leading-relaxed",
             !expanded && "line-clamp-2",
           )}
         >

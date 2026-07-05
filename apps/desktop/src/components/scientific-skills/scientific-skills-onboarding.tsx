@@ -126,7 +126,6 @@ export function ScientificSkillsOnboarding({
       .catch(console.error);
   }, []);
 
-
   // Install a single skill
   const handleInstallSkill = useCallback(
     async (folder: string) => {
@@ -270,7 +269,7 @@ export function ScientificSkillsOnboarding({
         {error && (
           <div className="flex items-start gap-2 border-border border-b bg-destructive/5 px-6 py-2">
             <AlertCircleIcon className="mt-0.5 size-3.5 shrink-0 text-destructive" />
-            <p className="min-w-0 flex-1 text-xs text-muted-foreground">
+            <p className="min-w-0 flex-1 text-muted-foreground text-xs">
               {error}
             </p>
             <button
@@ -292,10 +291,10 @@ export function ScientificSkillsOnboarding({
               className="flex-1"
             >
               <TabsList className="h-7">
-                <TabsTrigger value="marketplace" className="text-xs px-3 h-6">
+                <TabsTrigger value="marketplace" className="h-6 px-3 text-xs">
                   Marketplace
                 </TabsTrigger>
-                <TabsTrigger value="installed" className="text-xs px-3 h-6">
+                <TabsTrigger value="installed" className="h-6 px-3 text-xs">
                   Installed
                   {installedSkills.length > 0 && (
                     <Badge
@@ -309,7 +308,7 @@ export function ScientificSkillsOnboarding({
               </TabsList>
             </Tabs>
             <div className="relative w-48">
-              <SearchIcon className="absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
+              <SearchIcon className="absolute top-1/2 left-2 size-3 -translate-y-1/2 text-muted-foreground" />
               <Input
                 placeholder="Search skills..."
                 value={searchQuery}
@@ -379,7 +378,7 @@ function MarketplaceContent({
             {isSearching ? "Search Results" : "Discover Skills"}
           </h3>
           {isSearching && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-muted-foreground text-xs">
               {skills.length} skills found
             </p>
           )}
@@ -389,7 +388,7 @@ function MarketplaceContent({
             variant="ghost"
             size="sm"
             onClick={onShuffle}
-            className="gap-1.5 text-xs text-muted-foreground"
+            className="gap-1.5 text-muted-foreground text-xs"
           >
             <RefreshCwIcon className="size-3" />
             Shuffle
@@ -439,7 +438,7 @@ function InstalledContent({
         </div>
         <div className="text-center">
           <p className="font-medium text-sm">No skills installed</p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 text-muted-foreground text-xs">
             Browse the Marketplace tab to install skills
           </p>
         </div>
