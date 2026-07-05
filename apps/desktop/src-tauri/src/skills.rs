@@ -814,6 +814,265 @@ pub async fn get_skill_content(
         .map_err(|e| format!("Failed to read response: {}", e))
 }
 
+// ─── Single Skill Install/Uninstall ───
+
+/// Install a single skill by downloading its SKILL.md from GitHub.
+#[tauri::command]
+pub async fn install_single_skill(
+    window: WebviewWindow,
+    skill_folder: String,
+) -> Result<InstallResult, String> {
+    let target = skills_dir(None);
+    let skill_target = target.join(&skill_folder);
+
+    emit_log(&window, &format!("Installing skill: {}", skill_folder));
+
+    // Ensure target directory is writable
+    ensure_target_writable(&target).map_err(|e| {
+        emit_log(&window, &format!("Permission error: {}", e));
+        e
+    })?;
+
+    // Create the skill directory
+    std::fs::create_dir_all(&skill_target)
+        .map_err(|e| format!("Failed to create skill dir: {}", e))?;
+
+    // Try to download the full skill folder via tarball (extracts just the one skill)
+    emit_log(&window, &format!("Downloading {}...", skill_folder));
+
+    // First try fetching SKILL.md directly from GitHub
+    let skill_md_url = format!(
+        "https://raw.githubusercontent.com/K-Dense-AI/claude-scientific-skills/main/scientific-skills/{}/SKILL.md",
+        skill_folder
+    );
+
+    let response = reqwest::get(&skill_md_url)
+        .await
+        .map_err(|e| format!("Failed to download skill: {}", e))?;
+
+    if !response.status().is_success() {
+        // Try mirror: download full archive and extract just this skill
+        return install_single_skill_from_archive(&window, &skill_folder, &target).await;
+    }
+
+    let content = response.text().await
+        .map_err(|e| format!("Failed to read skill content: {}", e))?;
+
+    std::fs::write(skill_target.join("SKILL.md"), &content)
+        .map_err(|e| format!("Failed to write SKILL.md: {}", e))?;
+
+    emit_log(&window, &format!("Installed skill: {}", skill_folder));
+
+    Ok(InstallResult {
+        success: true,
+        skills_installed: 1,
+        target_dir: skill_target.to_string_lossy().to_string(),
+        message: format!("Successfully installed {}", skill_folder),
+    })
+}
+
+/// Fallback: download the full archive and extract just the requested skill.
+async fn install_single_skill_from_archive(
+    window: &WebviewWindow,
+    skill_folder: &str,
+    target: &Path,
+) -> Result<InstallResult, String> {
+    emit_log(window, "Trying mirror download...");
+
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "claude-skill-single-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+    std::fs::create_dir_all(&tmp_dir)
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+
+    download_tarball(&tmp_dir).await.map_err(|e| {
+        emit_log(window, &format!("Download failed: {}", e));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        e
+    })?;
+
+    let repo_dir = tmp_dir.join("repo");
+    let src_skill = repo_dir.join(SKILLS_SUBFOLDER).join(skill_folder);
+
+    if !src_skill.exists() {
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        return Err(format!("Skill '{}' not found in repository", skill_folder));
+    }
+
+    let skill_target = target.join(skill_folder);
+    copy_dir_recursive(&src_skill, &skill_target)?;
+
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    emit_log(window, &format!("Installed skill: {}", skill_folder));
+
+    Ok(InstallResult {
+        success: true,
+        skills_installed: 1,
+        target_dir: skill_target.to_string_lossy().to_string(),
+        message: format!("Successfully installed {}", skill_folder),
+    })
+}
+
+/// Uninstall a single skill by removing its directory.
+#[tauri::command]
+pub async fn uninstall_single_skill(skill_folder: String) -> Result<(), String> {
+    let target = skills_dir(None).join(&skill_folder);
+
+    if target.exists() {
+        std::fs::remove_dir_all(&target)
+            .map_err(|e| format!("Failed to remove skill '{}': {}", skill_folder, e))?;
+    }
+
+    Ok(())
+}
+
+/// Upload a zip file containing a skill to ~/.claude/skills/.
+/// The zip is expected to contain either:
+///   1. A top-level folder with SKILL.md inside, or
+///   2. SKILL.md at the root (uses zip filename as folder name).
+#[tauri::command]
+pub async fn upload_skill_zip(zip_path: String) -> Result<SkillInfo, String> {
+    let zip_file = PathBuf::from(&zip_path);
+
+    if !zip_file.exists() || !zip_file.is_file() {
+        return Err(format!("Zip file does not exist: {}", zip_path));
+    }
+
+    // Read the zip
+    let file_bytes = std::fs::read(&zip_file)
+        .map_err(|e| format!("Failed to read zip file: {}", e))?;
+
+    let cursor = Cursor::new(&file_bytes[..]);
+    let mut archive = zip::ZipArchive::new(cursor)
+        .map_err(|e| format!("Failed to open zip archive: {}", e))?;
+
+    // Extract to a temp directory first
+    let tmp_dir = std::env::temp_dir().join(format!(
+        "claude-skill-upload-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    ));
+    std::fs::create_dir_all(&tmp_dir)
+        .map_err(|e| format!("Failed to create temp dir: {}", e))?;
+
+    archive.extract(&tmp_dir)
+        .map_err(|e| {
+            let _ = std::fs::remove_dir_all(&tmp_dir);
+            format!("Failed to extract zip: {}", e)
+        })?;
+
+    // Determine the skill folder:
+    // Case 1: zip has a single top-level directory containing SKILL.md
+    // Case 2: SKILL.md is at the root of the extraction
+    let entries: Vec<_> = std::fs::read_dir(&tmp_dir)
+        .map_err(|e| format!("Failed to read extracted dir: {}", e))?
+        .flatten()
+        .collect();
+
+    let skill_source = if entries.len() == 1 && entries[0].path().is_dir() {
+        // Single top-level folder — use it as the skill
+        entries[0].path()
+    } else if tmp_dir.join("SKILL.md").exists() {
+        // SKILL.md at root — treat the whole extraction as the skill folder
+        tmp_dir.clone()
+    } else {
+        // Look for any subfolder containing SKILL.md
+        let found = entries.iter().find(|e| {
+            e.path().is_dir() && e.path().join("SKILL.md").exists()
+        });
+        match found {
+            Some(entry) => entry.path(),
+            None => {
+                let _ = std::fs::remove_dir_all(&tmp_dir);
+                return Err("Could not find a valid skill in zip (no SKILL.md found)".to_string());
+            }
+        }
+    };
+
+    // Determine folder name
+    let folder_name = if skill_source == tmp_dir {
+        // Use the zip filename (without extension) as the skill folder name
+        zip_file
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()
+    } else {
+        skill_source
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()
+    };
+
+    let target = skills_dir(None).join(&folder_name);
+
+    // Ensure parent directory exists
+    ensure_target_writable(&skills_dir(None))?;
+
+    // Copy the skill folder
+    copy_dir_recursive(&skill_source, &target).map_err(|e| {
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        e
+    })?;
+
+    // If no SKILL.md exists, create a minimal one
+    let skill_md = target.join("SKILL.md");
+    if !skill_md.exists() {
+        let content = format!("# {}\n\nCustom uploaded skill.\n", folder_name);
+        std::fs::write(&skill_md, content)
+            .map_err(|e| format!("Failed to create SKILL.md: {}", e))?;
+    }
+
+    // Clean up
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+
+    // Parse and return the skill info
+    parse_skill_md(&target).ok_or_else(|| "Failed to parse uploaded skill".to_string())
+}
+
+/// Upload a local skill folder to ~/.claude/skills/.
+#[tauri::command]
+pub async fn upload_skill_folder(source_path: String) -> Result<SkillInfo, String> {
+    let src = PathBuf::from(&source_path);
+
+    if !src.exists() || !src.is_dir() {
+        return Err(format!("Source path does not exist or is not a directory: {}", source_path));
+    }
+
+    // Use the folder name as the skill id
+    let folder_name = src
+        .file_name()
+        .ok_or("Invalid folder path")?
+        .to_string_lossy()
+        .to_string();
+
+    let target = skills_dir(None).join(&folder_name);
+
+    // Ensure parent directory exists
+    ensure_target_writable(&skills_dir(None))?;
+
+    // Copy the folder
+    copy_dir_recursive(&src, &target)?;
+
+    // If no SKILL.md exists, create a minimal one
+    let skill_md = target.join("SKILL.md");
+    if !skill_md.exists() {
+        let content = format!("# {}\n\nCustom uploaded skill.\n", folder_name);
+        std::fs::write(&skill_md, content)
+            .map_err(|e| format!("Failed to create SKILL.md: {}", e))?;
+    }
+
+    // Parse and return the skill info
+    parse_skill_md(&target).ok_or_else(|| "Failed to parse uploaded skill".to_string())
+}
+
 // ─── Tests ───
 
 #[cfg(test)]
