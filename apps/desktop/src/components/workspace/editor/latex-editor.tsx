@@ -76,6 +76,7 @@ import {
 } from "lucide-react";
 // ClaudeChatDrawer moved to workspace-layout as right-column ChatPanel
 import { ProposedChangesPanel } from "@/components/claude-chat/proposed-changes-panel";
+import { MarkdownRenderer } from "@/components/claude-chat/markdown-renderer";
 import { ImagePreview } from "./image-preview";
 import { SearchPanel } from "./search-panel";
 import { ProblemsPanel, type DiagnosticItem } from "./problems-panel";
@@ -137,11 +138,13 @@ export function LatexEditor() {
 
   const [imageScale, setImageScale] = useState(1.0);
   const [cropMode, setCropMode] = useState(false);
+  const [mdPreview, setMdPreview] = useState(false);
 
   // Reset scale and crop mode when switching files
   useEffect(() => {
     setImageScale(1.0);
     setCropMode(false);
+    setMdPreview(false);
   }, [activeFileId]);
 
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -1062,6 +1065,9 @@ export function LatexEditor() {
 
   const isPdf = activeFile?.type === "pdf";
   const isImage = !isTextFile && !isPdf && !!activeFile;
+  const isMdFile =
+    activeFile?.name.endsWith(".md") ||
+    activeFile?.name.endsWith(".markdown");
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -1073,6 +1079,9 @@ export function LatexEditor() {
         onImageScaleChange={isPdf || isImage ? setImageScale : undefined}
         cropMode={isImage ? cropMode : undefined}
         onCropToggle={isImage ? () => setCropMode((v) => !v) : undefined}
+        isMdFile={isMdFile}
+        mdPreview={mdPreview}
+        onMdPreviewToggle={() => setMdPreview((v) => !v)}
       />
       {/* Text-editor-only panels */}
       {!isPdf && !isImage && !isLargeFileNotLoaded && isSearchOpen && (
@@ -1194,10 +1203,12 @@ export function LatexEditor() {
         )}
         {/* Text editor content */}
         {!isPdf && !isImage && !isLargeFileNotLoaded && (
-          <>
+          <div className={mdPreview && isMdFile ? "hidden" : ""}>
             <div
               ref={containerRef}
-              className={reviewingSnapshot ? "hidden" : "absolute inset-0"}
+              className={
+                reviewingSnapshot ? "hidden" : "absolute inset-0"
+              }
             />
             {reviewingSnapshot && historyDiffResult && (
               <HistoryDiffView diffs={historyDiffResult} />
@@ -1313,7 +1324,13 @@ export function LatexEditor() {
                 </button>
               </div>
             )}
-          </>
+          </div>
+        )}
+        {/* Markdown preview (toggle) */}
+        {mdPreview && isMdFile && !isPdf && !isImage && !isLargeFileNotLoaded && (
+          <div className="relative min-h-0 flex-1 overflow-auto p-6">
+            <MarkdownRenderer content={activeFileContent ?? ""} />
+          </div>
         )}
         {/* Chat moved to right column in workspace-layout */}
       </div>

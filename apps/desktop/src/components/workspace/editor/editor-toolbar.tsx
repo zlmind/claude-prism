@@ -16,6 +16,7 @@ import {
   PlusIcon,
   BookMarkedIcon,
   ExternalLinkIcon,
+  EyeIcon,
 } from "lucide-react";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
@@ -58,6 +59,9 @@ interface EditorToolbarProps {
   onImageScaleChange?: (scale: number) => void;
   cropMode?: boolean;
   onCropToggle?: () => void;
+  isMdFile?: boolean;
+  mdPreview?: boolean;
+  onMdPreviewToggle?: () => void;
 }
 
 export function EditorToolbar({
@@ -67,6 +71,9 @@ export function EditorToolbar({
   onImageScaleChange,
   cropMode,
   onCropToggle,
+  isMdFile = false,
+  mdPreview = false,
+  onMdPreviewToggle,
 }: EditorToolbarProps) {
   const vimMode = useSettingsStore((s) => s.vimMode);
   const setVimMode = useSettingsStore((s) => s.setVimMode);
@@ -303,6 +310,21 @@ export function EditorToolbar({
       >
         VIM
       </Button>
+      {isMdFile && (
+        <>
+          <div className="mx-2 h-4 w-px bg-border" />
+          <Button
+            variant={mdPreview ? "default" : "ghost"}
+            size="sm"
+            className="h-6 gap-1 px-2 text-xs"
+            onClick={onMdPreviewToggle}
+            title="Toggle Markdown preview"
+          >
+            <EyeIcon className="size-3.5" />
+            Preview
+          </Button>
+        </>
+      )}
       <div data-tauri-drag-region className="flex-1 self-stretch" />
       {editors.length === 1 && (
         <TooltipIconButton
