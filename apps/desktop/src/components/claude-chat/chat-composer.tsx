@@ -74,7 +74,6 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
   const setSelectedModel = useClaudeChatStore((s) => s.setSelectedModel);
   const effortLevel = useClaudeChatStore((s) => s.effortLevel);
   const setEffortLevel = useClaudeChatStore((s) => s.setEffortLevel);
-  const activeTabId = useClaudeChatStore((s) => s.activeTabId);
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -113,39 +112,6 @@ export const ChatComposer: FC<{ isOpen?: boolean }> = ({ isOpen }) => {
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const slashSelectedRef = useRef(false); // true after user picks a command — suppresses re-open
 
-  // Keep refs to latest input/pinnedContexts so the tab-switch effect can
-  // save the draft without depending on these values (which would cause loops).
-  const inputRef = useRef(input);
-  inputRef.current = input;
-  const pinnedContextsRef = useRef(pinnedContexts);
-  pinnedContextsRef.current = pinnedContexts;
-
-  // Save draft to previous tab, restore draft from new tab
-  const prevTabIdRef = useRef(activeTabId);
-  useEffect(() => {
-    const prevTabId = prevTabIdRef.current;
-    if (prevTabId !== activeTabId) {
-      // Save current input to the *previous* tab's draft (using refs for latest values)
-      useClaudeChatStore.getState().saveDraft(prevTabId, {
-        input: inputRef.current,
-        pinnedContexts: pinnedContextsRef.current,
-      });
-    }
-    prevTabIdRef.current = activeTabId;
-
-    // Restore draft from the new active tab
-    const tab = useClaudeChatStore
-      .getState()
-      .tabs.find((t) => t.id === activeTabId);
-    const draft = tab?.draft;
-    setInput(draft?.input ?? "");
-    setPinnedContexts(draft?.pinnedContexts ?? []);
-    setMentionQuery(null);
-    setSlashQuery(null);
-    if (textareaRef.current) {
-      textareaRef.current.style.height = "auto";
-    }
-  }, [activeTabId]);
   const [slashCommands, setSlashCommands] = useState<SlashCommand[]>([]);
   const composerRef = useRef<HTMLDivElement>(null);
 

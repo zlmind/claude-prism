@@ -34,10 +34,10 @@ function WorkspaceWithClaude() {
   // Update window title
   useEffect(() => {
     if (projectRoot) {
-      const name = projectRoot.split(/[/\\]/).pop() || "ClaudePrism";
+      const name = projectRoot.split(/[/\\]/).pop() || "ClaudePaper";
       // Only call Tauri API if running in Tauri context
       if (typeof window !== "undefined" && "__TAURI__" in window) {
-        getCurrentWindow().setTitle(`${name} - ClaudePrism`);
+        getCurrentWindow().setTitle(`${name} - ClaudePaper`);
       }
     }
   }, [projectRoot]);

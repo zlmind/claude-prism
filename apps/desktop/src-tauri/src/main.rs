@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    claude_prism_desktop_lib::run()
+    claude_paper_desktop_lib::run()
 }

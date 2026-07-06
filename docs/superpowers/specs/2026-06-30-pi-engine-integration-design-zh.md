@@ -2,11 +2,11 @@
 
 **日期：** 2026-06-30
 **状态：** 草稿
-**作者：** Claude Prism 团队
+**作者：** Claude Paper 团队
 
 ## 1. 动机
 
-ClaudePrism 目前硬编码 Claude Code CLI 作为唯一 AI 引擎（`claude.rs`）。这限制了用户只能使用单一提供商（Anthropic），并且需要 Claude Pro/Max 订阅。我们需要一个多引擎架构，实现：
+ClaudePaper 目前硬编码 Claude Code CLI 作为唯一 AI 引擎（`claude.rs`）。这限制了用户只能使用单一提供商（Anthropic），并且需要 Claude Pro/Max 订阅。我们需要一个多引擎架构，实现：
 
 - 允许用户自带 API 密钥（支持任意 LLM 提供商）
 - 默认提供能力强劲的引擎，无需 Claude 订阅
@@ -182,7 +182,7 @@ Anthropic · claude-sonnet-4-6  [▼]
 ### 4.3 API 密钥存储
 
 - **主要**：OS 密钥链（Windows 凭据管理器、macOS 钥匙串）
-- **备选**：`~/.claude-prism/credentials.json` 加密文件（AES-256-GCM）
+- **备选**：`~/.claude-paper/credentials.json` 加密文件（AES-256-GCM）
 - API 密钥在运行时注入 Pi 的凭据存储；从不以明文形式存储在前端内存中
 
 ## 5. 迁移路径（现有 Claude Code 路径）
@@ -217,7 +217,7 @@ interface Model<TApi> {
 }
 ```
 
-这会自动映射到提供商特定的参数（Anthropic `thinking`、OpenAI `reasoning_effort`、DeepSeek `thinking.type` 等）。ClaudePrism 通过 RPC 协议传递思考级别，Pi 处理提供商特定的转换。
+这会自动映射到提供商特定的参数（Anthropic `thinking`、OpenAI `reasoning_effort`、DeepSeek `thinking.type` 等）。ClaudePaper 通过 RPC 协议传递思考级别，Pi 处理提供商特定的转换。
 
 ## 8. 风险与缓解措施
 
@@ -228,7 +228,7 @@ interface Model<TApi> {
 | 双引擎维护负担 | 引擎 trait 确保清晰边界；引擎特定 bug 不跨越接口 |
 | Pi RPC 进程崩溃恢复 | 健康检查心跳；崩溃时自动重启；向前端发出错误事件 |
 | Node.js 子进程内存开销 | 首次使用 Pi 时惰性生成；窗口关闭时终止；通过 `EngineProcessState` 管理 |
-| Pi 缺少权限系统 | ClaudePrism 已处理权限；Pi 使用继承的 OS 级权限运行 |
+| Pi 缺少权限系统 | ClaudePaper 已处理权限；Pi 使用继承的 OS 级权限运行 |
 
 ## 9. 实现阶段
 

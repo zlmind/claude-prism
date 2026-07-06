@@ -7,7 +7,7 @@ set RUSTUP_HOME=D:\Apps\rust\.rustup
 set "PATH=%CARGO_HOME%\bin;%PATH%"
 call "D:\Apps\micro\VC\Auxiliary\Build\vcvarsall.bat" x64 > nul 2>&1
 
-cd /d D:\aiproject\claude-prism
+cd /d D:\aiproject\claude-paper
 
 powershell -ExecutionPolicy Bypass -File "%~dp0build-windows.ps1"
 pause

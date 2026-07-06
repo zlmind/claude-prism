@@ -1548,7 +1548,7 @@ fn common_claude_args() -> Vec<String> {
         "--dangerously-skip-permissions".to_string(),
         "--append-system-prompt".to_string(),
         concat!(
-            "You are an AI assistant integrated into a LaTeX document editor (Prism). ",
+            "You are a rigorous academic paper writing tool. ",
             "Follow these rules strictly:\n",
             "1. PLANNING FIRST: Before making changes, use TodoWrite to create a step-by-step plan. ",
             "Break large tasks into small, incremental steps (one section or one logical unit per step).\n",

@@ -19,7 +19,7 @@ import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("claude-event");
 
-/** Backend event payload shapes (include tab_id for routing) */
+/** Backend event payload shapes (tab_id is present but unused — single session). */
 interface ClaudeOutputPayload {
   tab_id: string;
   data: string;
@@ -39,42 +39,35 @@ interface ClaudeErrorPayload {
  * Hook that manages Tauri event listeners for Claude CLI streaming output.
  *
  * Listeners are kept alive at all times (no race condition with invoke).
- * Per-tab mutable state (pendingToolUses, hasTexChanges) is stored in Maps
- * keyed by tab_id so multiple tabs can stream concurrently.
+ * The app runs a single chat session, so mutable stream state is stored in
+ * plain refs (no per-tab keying).
  */
 export function useClaudeEvents() {
-  // Per-tab mutable state stored in refs so the long-lived listeners
+  // Mutable per-stream state stored in refs so the long-lived listeners
   // always read the latest values without needing to be re-created.
   const pendingToolUsesRef = useRef(
-    new Map<string, Map<string, { name: string; input: any }>>(),
+    new Map<string, { name: string; input: any }>(),
   );
-  const hasTexChangesRef = useRef(new Map<string, boolean>());
-  const cancelledForAskRef = useRef(new Map<string, boolean>());
+  const hasTexChangesRef = useRef(false);
+  const cancelledForAskRef = useRef(false);
   const listenersRef = useRef<UnlistenFn[]>([]);
-  const msgCountRef = useRef(new Map<string, number>());
-  const streamStartTimeRef = useRef(new Map<string, number>());
-  const lastMsgTimeRef = useRef(new Map<string, number>());
+  const msgCountRef = useRef(0);
+  const streamStartTimeRef = useRef<number | null>(null);
+  const lastMsgTimeRef = useRef<number | null>(null);
 
-  // Reset per-tab state whenever any tab starts streaming
-  const tabs = useClaudeChatStore((s) => s.tabs);
+  // Reset per-stream state whenever a new stream starts
+  const isStreaming = useClaudeChatStore((s) => s.isStreaming);
   useEffect(() => {
-    for (const tab of tabs) {
-      if (tab.isStreaming && !msgCountRef.current.has(tab.id)) {
-        // New stream detected for this tab — initialize state
-        pendingToolUsesRef.current.set(tab.id, new Map());
-        hasTexChangesRef.current.set(tab.id, false);
-        cancelledForAskRef.current.set(tab.id, false);
-        msgCountRef.current.set(tab.id, 0);
-        streamStartTimeRef.current.delete(tab.id);
-        lastMsgTimeRef.current.delete(tab.id);
-      } else if (!tab.isStreaming) {
-        // Clean up finished tab state
-        msgCountRef.current.delete(tab.id);
-        streamStartTimeRef.current.delete(tab.id);
-        lastMsgTimeRef.current.delete(tab.id);
-      }
+    if (isStreaming) {
+      // New stream started — initialize state
+      pendingToolUsesRef.current = new Map();
+      hasTexChangesRef.current = false;
+      cancelledForAskRef.current = false;
+      msgCountRef.current = 0;
+      streamStartTimeRef.current = null;
+      lastMsgTimeRef.current = null;
     }
-  }, [tabs]);
+  }, [isStreaming]);
 
   // ── One-time listener setup (mount only) ──
   useEffect(() => {
@@ -112,14 +105,14 @@ export function useClaudeEvents() {
       }
     }
 
-    function elapsed(tabId: string) {
-      const start = streamStartTimeRef.current.get(tabId);
+    function elapsed() {
+      const start = streamStartTimeRef.current;
       if (!start) return "";
       return `+${((performance.now() - start) / 1000).toFixed(1)}s`;
     }
 
     function handleStreamMessage(payload: ClaudeOutputPayload) {
-      const { tab_id: tabId, data } = payload;
+      const { data } = payload;
 
       let msg: ClaudeStreamMessage;
       try {
@@ -130,24 +123,23 @@ export function useClaudeEvents() {
 
       const chatStore = useClaudeChatStore.getState();
 
-      // Only process messages if this tab is still streaming
-      const tab = chatStore.tabs.find((t) => t.id === tabId);
-      if (!tab?.isStreaming) return;
+      // Only process messages while streaming
+      if (!chatStore.isStreaming) return;
 
-      const count = (msgCountRef.current.get(tabId) ?? 0) + 1;
-      msgCountRef.current.set(tabId, count);
+      const count = msgCountRef.current + 1;
+      msgCountRef.current = count;
       const now = performance.now();
-      if (count === 1) streamStartTimeRef.current.set(tabId, now);
-      const lastTime = lastMsgTimeRef.current.get(tabId);
+      if (count === 1) streamStartTimeRef.current = now;
+      const lastTime = lastMsgTimeRef.current;
       const gap = lastTime ? ((now - lastTime) / 1000).toFixed(1) : "0";
-      lastMsgTimeRef.current.set(tabId, now);
+      lastMsgTimeRef.current = now;
 
       // Log ALL message types with gap detection
       const contentTypes =
         msg.message?.content?.map((b: any) => b.type).join(",") ?? "";
       const gapWarning = Number(gap) > 10 ? ` GAP ${gap}s` : "";
       log.debug(
-        `[${tabId}] ${elapsed(tabId)} #${count} type=${msg.type} sub=${msg.subtype ?? ""} content=[${contentTypes}] gap=${gap}s${gapWarning}`,
+        `${elapsed()} #${count} type=${msg.type} sub=${msg.subtype ?? ""} content=[${contentTypes}] gap=${gap}s${gapWarning}`,
       );
 
       if (msg.type === "assistant") {
@@ -156,23 +148,21 @@ export function useClaudeEvents() {
         );
         if (thinkingBlock) {
           log.debug(
-            `[${tabId}] ${elapsed(tabId)} thinking: ${(thinkingBlock.thinking || "").slice(0, 100)}`,
+            `${elapsed()} thinking: ${(thinkingBlock.thinking || "").slice(0, 100)}`,
           );
         }
         const textBlock = msg.message?.content?.find(
           (b: any) => b.type === "text",
         );
         if (textBlock?.text) {
-          log.debug(
-            `[${tabId}] ${elapsed(tabId)} text: ${textBlock.text.slice(0, 100)}`,
-          );
+          log.debug(`${elapsed()} text: ${textBlock.text.slice(0, 100)}`);
         }
         const toolBlock = msg.message?.content?.find(
           (b: any) => b.type === "tool_use",
         );
         if (toolBlock) {
           log.debug(
-            `[${tabId}] ${elapsed(tabId)} tool_use: ${toolBlock.name} ${toolBlock.input?.file_path ?? ""}`,
+            `${elapsed()} tool_use: ${toolBlock.name} ${toolBlock.input?.file_path ?? ""}`,
           );
         }
       }
@@ -184,20 +174,20 @@ export function useClaudeEvents() {
                 ? block.content.slice(0, 80)
                 : JSON.stringify(block.content)?.slice(0, 80);
             log.debug(
-              `[${tabId}] ${elapsed(tabId)} tool_result: id=${block.tool_use_id} err=${block.is_error ?? false} len=${preview?.length ?? 0}`,
+              `${elapsed()} tool_result: id=${block.tool_use_id} err=${block.is_error ?? false} len=${preview?.length ?? 0}`,
             );
           }
         }
       }
       if (msg.type === "result") {
         log.info(
-          `[${tabId}] ${elapsed(tabId)} result cost=$${msg.cost_usd} api=${msg.duration_api_ms}ms total=${msg.duration_ms}ms`,
+          `${elapsed()} result cost=$${msg.cost_usd} api=${msg.duration_api_ms}ms total=${msg.duration_ms}ms`,
         );
       }
 
       // Extract session_id from system:init
       if (msg.type === "system" && msg.subtype === "init" && msg.session_id) {
-        chatStore._setSessionId(tabId, msg.session_id);
+        chatStore._setSessionId(msg.session_id);
       }
 
       // Detect rate limit events and surface to user — never append to messages
@@ -208,11 +198,10 @@ export function useClaudeEvents() {
             ? new Date(info.resetsAt * 1000).toLocaleTimeString()
             : "unknown";
           log.warn(
-            `[${tabId}] rate_limit: status=${info.status} type=${info.rateLimitType} resets=${resetsAt} overage=${info.overageStatus}`,
+            `rate_limit: status=${info.status} type=${info.rateLimitType} resets=${resetsAt} overage=${info.overageStatus}`,
           );
           if (info.status !== "allowed") {
             chatStore._setError(
-              tabId,
               `Rate limited (${info.rateLimitType}). Resets at ${resetsAt}`,
             );
           }
@@ -221,24 +210,23 @@ export function useClaudeEvents() {
       }
 
       // Track tool_use blocks for file change detection
-      const tabToolUses = pendingToolUsesRef.current.get(tabId) ?? new Map();
+      const toolUses = pendingToolUsesRef.current;
       if (msg.type === "assistant" && msg.message?.content) {
         for (const block of msg.message.content) {
           if (block.type === "tool_use" && block.id && block.name) {
-            tabToolUses.set(block.id, {
+            toolUses.set(block.id, {
               name: block.name,
               input: block.input,
             });
           }
         }
-        pendingToolUsesRef.current.set(tabId, tabToolUses);
       }
 
       // Detect file modifications from tool_results → register as proposed changes
       if (msg.type === "user" && msg.message?.content) {
         for (const block of msg.message.content) {
           if (block.type === "tool_result" && block.tool_use_id) {
-            const toolUse = tabToolUses.get(block.tool_use_id);
+            const toolUse = toolUses.get(block.tool_use_id);
             if (
               toolUse &&
               !block.is_error &&
@@ -248,7 +236,7 @@ export function useClaudeEvents() {
               if (fp) {
                 registerProposedChange(fp, block.tool_use_id!, toolUse.name);
                 if (/\.(tex|bib|sty|cls|dtx)$/i.test(fp)) {
-                  hasTexChangesRef.current.set(tabId, true);
+                  hasTexChangesRef.current = true;
                 }
               }
             }
@@ -265,7 +253,7 @@ export function useClaudeEvents() {
         return;
       }
 
-      chatStore._appendMessage(tabId, msg);
+      chatStore._appendMessage(msg);
 
       // When AskUserQuestion is detected, cancel the process so the user
       // can interact with the widget before Claude continues.
@@ -275,60 +263,55 @@ export function useClaudeEvents() {
         );
         if (hasAskUser) {
           log.info(
-            `[${tabId}] ${elapsed(tabId)} AskUserQuestion detected — cancelling process for user input`,
+            `${elapsed()} AskUserQuestion detected — cancelling process for user input`,
           );
-          cancelledForAskRef.current.set(tabId, true);
-          invoke("cancel_claude_execution", { tabId }).catch(() => {});
+          cancelledForAskRef.current = true;
+          invoke("cancel_claude_execution", { tabId: "main" }).catch(() => {});
         }
       }
     }
 
     async function handleComplete(payload: ClaudeCompletePayload) {
-      const { tab_id: tabId, success } = payload;
-      const count = msgCountRef.current.get(tabId) ?? 0;
+      const { success } = payload;
+      const count = msgCountRef.current;
 
       log.info(
-        `[${tabId}] complete success=${success} (${count} messages) cancelledForAsk=${cancelledForAskRef.current.get(tabId) ?? false}`,
+        `complete success=${success} (${count} messages) cancelledForAsk=${cancelledForAskRef.current}`,
       );
       const chatStore = useClaudeChatStore.getState();
 
       // Guard against duplicate complete events
-      const tab = chatStore.tabs.find((t) => t.id === tabId);
-      if (!tab?.isStreaming) {
-        log.warn(
-          `[${tabId}] ignoring duplicate complete event (not streaming)`,
-        );
+      if (!chatStore.isStreaming) {
+        log.warn("ignoring duplicate complete event (not streaming)");
         return;
       }
 
       if (
         !success &&
-        !tab.error &&
-        !cancelledForAskRef.current.get(tabId) &&
+        !chatStore.error &&
+        !cancelledForAskRef.current &&
         !chatStore._cancelledByUser
       ) {
         if (count === 0) {
           const isWindows = navigator.userAgent.includes("Windows");
           chatStore._setError(
-            tabId,
             isWindows
               ? "Claude process failed to start. Check that Claude Code CLI is installed and git-bash is available."
               : "Claude process failed to start. Check that Claude Code CLI is installed.",
           );
         } else {
           chatStore._setError(
-            tabId,
             "Claude process exited unexpectedly. This may be due to rate limiting or an API error.",
           );
         }
       }
 
-      // Clean up per-tab state
-      pendingToolUsesRef.current.delete(tabId);
-      hasTexChangesRef.current.delete(tabId);
-      cancelledForAskRef.current.delete(tabId);
+      // Clean up per-stream state
+      pendingToolUsesRef.current = new Map();
+      hasTexChangesRef.current = false;
+      cancelledForAskRef.current = false;
 
-      chatStore._setStreaming(tabId, false);
+      chatStore._setStreaming(false);
 
       // Snapshot after Claude edit
       const projectPath = useDocumentStore.getState().projectRoot;
@@ -416,28 +399,26 @@ export function useClaudeEvents() {
         "claude-error",
         (event) => {
           if (!cancelled) {
-            const { tab_id: tabId, data: payload } = event.payload;
-            log.warn(`[${tabId}] stderr: ${payload}`);
+            const { data: payload } = event.payload;
+            log.warn(`stderr: ${payload}`);
             if (
               payload.includes("Error") ||
               payload.includes("error") ||
               payload.includes("ECONNREFUSED") ||
               payload.includes("timeout")
             ) {
-              log.error(`[${tabId}] CRITICAL: ${payload}`);
+              log.error(`CRITICAL: ${payload}`);
             }
             // Surface critical stderr messages to the user UI (only if no error is already set)
             if (
               (payload.includes("git-bash") ||
                 payload.includes("git bash") ||
                 payload.includes("bash.exe")) &&
-              !useClaudeChatStore.getState().tabs.find((t) => t.id === tabId)
-                ?.error
+              !useClaudeChatStore.getState().error
             ) {
               useClaudeChatStore
                 .getState()
                 ._setError(
-                  tabId,
                   "Claude Code requires git-bash on Windows. Please install Git for Windows or set the CLAUDE_CODE_GIT_BASH_PATH environment variable.",
                 );
             }

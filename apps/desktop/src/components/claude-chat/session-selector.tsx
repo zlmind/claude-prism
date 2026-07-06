@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { HistoryIcon, PlusIcon, CheckIcon, Loader2Icon } from "lucide-react";
+import { HistoryIcon, CheckIcon, Loader2Icon } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -39,7 +39,6 @@ export function SessionSelector() {
   const [isLoading, setIsLoading] = useState(false);
   const sessionId = useClaudeChatStore((s) => s.sessionId);
   const isStreaming = useClaudeChatStore((s) => s.isStreaming);
-  const newSession = useClaudeChatStore((s) => s.newSession);
   const resumeSession = useClaudeChatStore((s) => s.resumeSession);
   const projectRoot = useDocumentStore((s) => s.projectRoot);
 
@@ -80,11 +79,6 @@ export function SessionSelector() {
     [isStreaming, sessionId, resumeSession],
   );
 
-  const handleNewChat = useCallback(() => {
-    if (isStreaming) return;
-    newSession();
-  }, [isStreaming, newSession]);
-
   return (
     <DropdownMenu onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger asChild>
@@ -105,11 +99,6 @@ export function SessionSelector() {
         className="max-h-80 w-72 overflow-y-auto"
       >
         <DropdownMenuLabel>Sessions</DropdownMenuLabel>
-
-        <DropdownMenuItem onSelect={handleNewChat} disabled={isStreaming}>
-          <PlusIcon className="size-4" />
-          <span>New Chat</span>
-        </DropdownMenuItem>
 
         <DropdownMenuSeparator />
 

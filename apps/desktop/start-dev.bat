@@ -7,10 +7,10 @@ set CARGO_HOME=D:\Apps\rust\.cargo
 set RUSTUP_HOME=D:\Apps\rust\.rustup
 set "PATH=%CARGO_HOME%\bin;%PATH%"
 
-cd /d D:\aiproject\claude-prism\apps\desktop
+cd /d D:\aiproject\claude-paper\apps\desktop
 
 echo ========================================
-echo   ClaudePrism Tauri Dev Starting...
+echo   ClaudePaper Tauri Dev Starting...
 echo ========================================
 echo.
 echo Checking tools...

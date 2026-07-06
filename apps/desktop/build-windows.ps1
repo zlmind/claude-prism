@@ -12,7 +12,7 @@ $KEY_FILE = Join-Path $CARGO_HOME "tauri-key.pem"
 Write-Host "Using cargo: $(Get-Command cargo).Source"
 
 Write-Host "========================================"
-Write-Host "  ClaudePrism Windows Build (NSIS)"
+Write-Host "  ClaudePaper Windows Build (NSIS)"
 Write-Host "========================================"
 Write-Host ""
 
@@ -43,7 +43,7 @@ if (-not (Test-Path "node_modules")) {
 Write-Host "Building Tauri app (Windows NSIS installer)..."
 Write-Host ""
 
-& pnpm --filter @claude-prism/desktop tauri build --bundles nsis
+& pnpm --filter @claude-paper/desktop tauri build --bundles nsis
 
 # Restore config if backed up
 if ($configBak -and (Test-Path $configBak)) {
@@ -58,5 +58,5 @@ Write-Host ""
 Write-Host "========================================"
 Write-Host "  Build complete!"
 Write-Host ""
-Write-Host "  Installer: src-tauri\target\release\bundle\nsis\ClaudePrism_*-setup.exe"
+Write-Host "  Installer: src-tauri\target\release\bundle\nsis\ClaudePaper_*-setup.exe"
 Write-Host "========================================"

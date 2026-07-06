@@ -33,20 +33,6 @@ function resetClaudeChatStore() {
     error: null,
     totalInputTokens: 0,
     totalOutputTokens: 0,
-    tabs: [
-      {
-        id: "tab-default",
-        title: "New Chat",
-        sessionId: null,
-        messages: [],
-        isStreaming: false,
-        error: null,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        draft: { input: "", pinnedContexts: [] },
-      },
-    ],
-    activeTabId: "tab-default",
     pendingInitialPrompt: null,
     pendingAttachments: [],
     selectedModel: "opus",
@@ -108,7 +94,7 @@ describe("useClaudeChatStore.sendPrompt context assembly", () => {
       "execute_claude_code",
       expect.objectContaining({
         projectPath: "/project",
-        tabId: "tab-default",
+        tabId: "main",
         prompt: expect.stringContaining("[Selection: @main.tex]"),
       }),
     );
@@ -146,7 +132,7 @@ describe("useClaudeChatStore.sendPrompt context assembly", () => {
       "execute_claude_code",
       expect.objectContaining({
         projectPath: "/project",
-        tabId: "tab-default",
+        tabId: "main",
         prompt: expect.stringContaining("[Selection: @main.tex:2:1-3:6]"),
       }),
     );

@@ -2,11 +2,11 @@
 
 **Date:** 2026-06-30
 **Status:** Draft
-**Authors:** Claude Prism Team
+**Authors:** Claude Paper Team
 
 ## 1. Motivation
 
-ClaudePrism currently hardcodes Claude Code CLI as its sole AI engine (`claude.rs`). This limits users to a single provider (Anthropic) and requires a Claude Pro/Max subscription. We need a multi-engine architecture that:
+ClaudePaper currently hardcodes Claude Code CLI as its sole AI engine (`claude.rs`). This limits users to a single provider (Anthropic) and requires a Claude Pro/Max subscription. We need a multi-engine architecture that:
 
 - Lets users bring their own API keys (ANY LLM provider)
 - Defaults to a capable engine without requiring a Claude subscription
@@ -182,7 +182,7 @@ Status bar shows engine state:
 ### 4.3 API Key Storage
 
 - **Primary**: OS keychain (Windows Credential Manager, macOS Keychain)
-- **Fallback**: Encrypted file at `~/.claude-prism/credentials.json` (AES-256-GCM)
+- **Fallback**: Encrypted file at `~/.claude-paper/credentials.json` (AES-256-GCM)
 - API key is injected into Pi's credential store at runtime; never stored in plaintext or frontend memory
 
 ## 5. Migration Path (Existing Claude Code Path)
@@ -217,7 +217,7 @@ interface Model<TApi> {
 }
 ```
 
-This maps to provider-specific parameters (Anthropic `thinking`, OpenAI `reasoning_effort`, DeepSeek `thinking.type`, etc.) automatically. ClaudePrism passes the thinking level through the RPC protocol and Pi handles the provider-specific translation.
+This maps to provider-specific parameters (Anthropic `thinking`, OpenAI `reasoning_effort`, DeepSeek `thinking.type`, etc.) automatically. ClaudePaper passes the thinking level through the RPC protocol and Pi handles the provider-specific translation.
 
 ## 8. Risks & Mitigations
 
@@ -228,7 +228,7 @@ This maps to provider-specific parameters (Anthropic `thinking`, OpenAI `reasoni
 | Dual-engine maintenance burden | Engine trait ensures clear boundaries; engine-specific bugs don't cross the interface |
 | Pi RPC process crash recovery | Health-check heartbeat; auto-restart on crash; emit error event to frontend |
 | Node.js subprocess memory overhead | Lazy spawn on first Pi use; kill on window close; manage via `EngineProcessState` |
-| Pi lacks permission system | ClaudePrism already handles permissions; Pi runs with inherited OS-level permissions |
+| Pi lacks permission system | ClaudePaper already handles permissions; Pi runs with inherited OS-level permissions |
 
 ## 9. Implementation Phases
 
