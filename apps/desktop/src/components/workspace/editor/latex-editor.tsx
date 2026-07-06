@@ -1066,8 +1066,7 @@ export function LatexEditor() {
   const isPdf = activeFile?.type === "pdf";
   const isImage = !isTextFile && !isPdf && !!activeFile;
   const isMdFile =
-    activeFile?.name.endsWith(".md") ||
-    activeFile?.name.endsWith(".markdown");
+    activeFile?.name.endsWith(".md") || activeFile?.name.endsWith(".markdown");
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -1206,9 +1205,7 @@ export function LatexEditor() {
           <div className={mdPreview && isMdFile ? "hidden" : ""}>
             <div
               ref={containerRef}
-              className={
-                reviewingSnapshot ? "hidden" : "absolute inset-0"
-              }
+              className={reviewingSnapshot ? "hidden" : "absolute inset-0"}
             />
             {reviewingSnapshot && historyDiffResult && (
               <HistoryDiffView diffs={historyDiffResult} />
@@ -1327,11 +1324,15 @@ export function LatexEditor() {
           </div>
         )}
         {/* Markdown preview (toggle) */}
-        {mdPreview && isMdFile && !isPdf && !isImage && !isLargeFileNotLoaded && (
-          <div className="relative min-h-0 flex-1 overflow-auto p-6">
-            <MarkdownRenderer content={activeFileContent ?? ""} />
-          </div>
-        )}
+        {mdPreview &&
+          isMdFile &&
+          !isPdf &&
+          !isImage &&
+          !isLargeFileNotLoaded && (
+            <div className="relative min-h-0 flex-1 overflow-auto p-6">
+              <MarkdownRenderer content={activeFileContent ?? ""} />
+            </div>
+          )}
         {/* Chat moved to right column in workspace-layout */}
       </div>
       {/* Text-editor-only bottom panels */}
