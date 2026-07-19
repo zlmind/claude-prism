@@ -1,6 +1,7 @@
 mod claude;
 mod history;
 mod latex;
+mod mcp;
 mod skills;
 mod slash_commands;
 mod uv;
@@ -404,6 +405,12 @@ pub fn run() {
             skills::uninstall_single_skill,
             skills::upload_skill_folder,
             skills::upload_skill_zip,
+            mcp::check_mcp_installed,
+            mcp::fetch_mcp_marketplace,
+            mcp::install_mcp_server,
+            mcp::install_mcp_from_url,
+            mcp::toggle_mcp_server,
+            mcp::remove_mcp_server,
             uv::check_uv_status,
             uv::install_uv,
             uv::setup_project_venv,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { useDocumentStore } from "@/stores/document-store";
 import {
   FlaskConicalIcon,
   UploadIcon,
@@ -36,6 +37,7 @@ interface SkillInfo {
   domain: string;
   description: string;
   folder: string;
+  source: string;
 }
 
 interface SkillsStatus {
@@ -64,6 +66,7 @@ export function ScientificSkillsOnboarding({
 }: ScientificSkillsOnboardingProps) {
   const [categories, setCategories] = useState<SkillCategoryData[]>([]);
   const [installedSkills, setInstalledSkills] = useState<SkillInfo[]>([]);
+  const projectRoot = useDocumentStore((s) => s.projectRoot);
   const [status, setStatus] = useState<SkillsStatus | null>(null);
   const [activeTab, setActiveTab] = useState<string>("marketplace");
   const [searchQuery, setSearchQuery] = useState("");
@@ -102,7 +105,7 @@ export function ScientificSkillsOnboarding({
   const loadInstalledSkills = useCallback(async () => {
     try {
       const skills = await invoke<SkillInfo[]>("list_installed_skills", {
-        projectPath: null,
+        projectPath: projectRoot || undefined,
       });
       setInstalledSkills(skills);
       if (skills.length > 0) {
@@ -111,7 +114,7 @@ export function ScientificSkillsOnboarding({
     } catch {
       setInstalledSkills([]);
     }
-  }, []);
+  }, [projectRoot]);
 
   useEffect(() => {
     checkStatus();
@@ -463,6 +466,7 @@ function InstalledContent({
           folder={skill.folder}
           description={skill.description}
           installed
+          source={skill.source}
           onUninstall={() => onUninstall(skill.folder)}
         />
       ))}

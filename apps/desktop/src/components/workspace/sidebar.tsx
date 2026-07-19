@@ -14,8 +14,6 @@ import {
   SunIcon,
   MoonIcon,
   MonitorIcon,
-  ListIcon,
-  HashIcon,
   GithubIcon,
   ChevronRightIcon,
   ChevronDownIcon,
@@ -71,6 +69,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useUvSetupStore } from "@/stores/uv-setup-store";
 import { UvSetupDialog } from "@/components/uv-setup";
+import { McpPanel } from "@/components/mcp/mcp-panel";
 import { createLogger } from "@/lib/debug/logger";
 
 const log = createLogger("sidebar");
@@ -469,11 +468,12 @@ export function Sidebar() {
   }, []);
 
   // Outline
-  const toc = useMemo(
+  const _toc = useMemo(
     () => parseTableOfContents(activeFileContent),
     [activeFileContent],
   );
-  const handleTocClick = useCallback(
+
+  const _handleTocClick = useCallback(
     (line: number) => {
       const lines = activeFileContent.split("\n");
       let position = 0;
@@ -764,7 +764,7 @@ export function Sidebar() {
 
         <PanelResizeHandle className="h-px bg-sidebar-border transition-colors hover:bg-ring data-resize-handle-active:bg-ring" />
 
-        {/* Outline */}
+        {/* Outline — commented out, hidden
         <Panel defaultSize={20} minSize={10}>
           <div className="flex h-full flex-col">
             <div className="flex h-8 shrink-0 items-center justify-center gap-2 px-3">
@@ -794,6 +794,7 @@ export function Sidebar() {
         </Panel>
 
         <PanelResizeHandle className="h-px bg-sidebar-border transition-colors hover:bg-ring data-resize-handle-active:bg-ring" />
+        */}
 
         {/* Zotero */}
         <Panel defaultSize={15} minSize={10}>
@@ -1179,6 +1180,15 @@ function FileTreeNode({
 
 // ─── Environment Section (Python + Skills) ───
 
+interface SkillInfo {
+  id: string;
+  name: string;
+  domain: string;
+  description: string;
+  folder: string;
+  source: string;
+}
+
 interface SkillsStatus {
   installed: boolean;
   skill_count: number;
@@ -1197,29 +1207,31 @@ function EnvironmentSection({ projectPath }: { projectPath: string | null }) {
 
   const checkSkillsStatus = useCallback(async () => {
     try {
-      const globalStatus = await invoke<SkillsStatus>(
-        "check_skills_installed",
-        {
-          projectPath: null,
-        },
-      );
-      if (globalStatus.installed) {
-        setSkillsStatus(globalStatus);
-        return;
-      }
-      if (projectPath) {
-        const projectStatus = await invoke<SkillsStatus>(
-          "check_skills_installed",
-          {
-            projectPath,
-          },
-        );
-        setSkillsStatus(projectStatus);
+      // Get all installed skills (both global and project)
+      const allSkills = await invoke<SkillInfo[]>("list_installed_skills", {
+        projectPath: projectPath || undefined,
+      });
+
+      if (allSkills.length > 0) {
+        setSkillsStatus({
+          installed: true,
+          skill_count: allSkills.length,
+          location: projectPath || "Global",
+        });
       } else {
-        setSkillsStatus(globalStatus);
+        setSkillsStatus({
+          installed: false,
+          skill_count: 0,
+          location: projectPath || "Global",
+        });
       }
     } catch {
       // Ignore errors silently
+      setSkillsStatus({
+        installed: false,
+        skill_count: 0,
+        location: projectPath || "Global",
+      });
     }
   }, [projectPath]);
 
@@ -1308,6 +1320,9 @@ function EnvironmentSection({ projectPath }: { projectPath: string | null }) {
               {skillsLabel}
             </span>
           </button>
+
+          {/* MCP row */}
+          <McpPanel projectPath={projectPath} />
         </div>
       </div>
 

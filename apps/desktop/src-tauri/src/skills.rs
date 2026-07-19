@@ -18,6 +18,7 @@ pub struct SkillInfo {
     pub domain: String,
     pub description: String,
     pub folder: String,
+    pub source: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -550,6 +551,7 @@ fn parse_skill_md(skill_dir: &Path) -> Option<SkillInfo> {
         domain,
         description,
         folder,
+        source: String::new(), // Will be set by caller
     })
 }
 
@@ -731,20 +733,41 @@ pub async fn check_skills_installed(project_path: Option<String>) -> Result<Skil
 
 #[tauri::command]
 pub async fn list_installed_skills(project_path: Option<String>) -> Result<Vec<SkillInfo>, String> {
-    let target = skills_dir(project_path.as_deref());
+    let mut skills = Vec::new();
+    let mut folder_set = std::collections::HashSet::new();
 
-    if !target.exists() {
-        return Ok(Vec::new());
+    // First, load project skills (if project path provided)
+    if let Some(ref proj_path) = project_path {
+        let project_skills_dir = PathBuf::from(proj_path).join(".claude").join("skills");
+        if project_skills_dir.exists() {
+            let entries = std::fs::read_dir(&project_skills_dir)
+                .map_err(|e| format!("Failed to read project skills dir: {}", e))?;
+            for entry in entries.flatten() {
+                if entry.path().is_dir() {
+                    if let Some(mut info) = parse_skill_md(&entry.path()) {
+                        info.source = "project".to_string();
+                        folder_set.insert(info.folder.clone());
+                        skills.push(info);
+                    }
+                }
+            }
+        }
     }
 
-    let mut skills = Vec::new();
-    let entries =
-        std::fs::read_dir(&target).map_err(|e| format!("Failed to read skills dir: {}", e))?;
-
-    for entry in entries.flatten() {
-        if entry.path().is_dir() {
-            if let Some(info) = parse_skill_md(&entry.path()) {
-                skills.push(info);
+    // Then, load global skills (only if not already loaded from project)
+    let global_skills_dir = skills_dir(None);
+    if global_skills_dir.exists() {
+        let entries = std::fs::read_dir(&global_skills_dir)
+            .map_err(|e| format!("Failed to read global skills dir: {}", e))?;
+        for entry in entries.flatten() {
+            if entry.path().is_dir() {
+                if let Some(mut info) = parse_skill_md(&entry.path()) {
+                    // Only add if not already loaded from project
+                    if !folder_set.contains(&info.folder) {
+                        info.source = "global".to_string();
+                        skills.push(info);
+                    }
+                }
             }
         }
     }

@@ -16,6 +16,7 @@ export interface SkillCardProps {
   folder: string;
   description?: string;
   installed: boolean;
+  source?: string;
   onInstall?: () => Promise<void>;
   onUninstall?: () => Promise<void>;
 }
@@ -25,6 +26,7 @@ export function SkillCard({
   folder,
   description,
   installed,
+  source,
   onInstall,
   onUninstall,
 }: SkillCardProps) {
@@ -74,6 +76,20 @@ export function SkillCard({
           <p className="mt-0.5 pl-[18px] font-mono text-[10px] text-muted-foreground/60">
             {folder}
           </p>
+          {source && (
+            <p className="mt-0.5 flex items-center gap-1.5 pl-[18px]">
+              <span
+                className={cn(
+                  "rounded px-1.5 py-0.5 text-[10px]",
+                  source === "global"
+                    ? "bg-blue-500/10 text-blue-500"
+                    : "bg-purple-500/10 text-purple-500",
+                )}
+              >
+                {source === "global" ? "Global" : "Project"}
+              </span>
+            </p>
+          )}
         </div>
 
         {/* Action */}
