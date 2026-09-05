@@ -915,7 +915,31 @@ async fn spawn_claude_process(
     let stdout_task = tokio::spawn(async move {
         let mut lines = stdout_reader.lines();
         let mut line_count: u64 = 0;
-        while let Ok(Some(line)) = lines.next_line().await {
+        loop {
+            let line = match lines.next_line().await {
+                Ok(Some(line)) => line,
+                Ok(None) => break,
+                Err(e) => {
+                    eprintln!(
+                        "[claude-stdout] [{}] read error after {} lines: {} ({:.1}s)",
+                        tab_id_stdout,
+                        line_count,
+                        e,
+                        start_time.elapsed().as_secs_f64()
+                    );
+                    // Surface to the UI instead of dying silently — the child may
+                    // still be alive, so claude-complete would never arrive and
+                    // the frontend would hang in the streaming state forever.
+                    let _ = win_stdout.emit(
+                        "claude-error",
+                        ClaudeErrorEvent {
+                            tab_id: tab_id_stdout.clone(),
+                            data: format!("Claude stdout read error: {e}"),
+                        },
+                    );
+                    break;
+                }
+            };
             line_count += 1;
             let elapsed = start_time.elapsed().as_secs_f64();
 

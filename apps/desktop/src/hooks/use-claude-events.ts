@@ -422,6 +422,18 @@ export function useClaudeEvents() {
                   "Claude Code requires git-bash on Windows. Please install Git for Windows or set the CLAUDE_CODE_GIT_BASH_PATH environment variable.",
                 );
             }
+            // Backend reports a stdout read failure — the stream is dead and
+            // claude-complete will never arrive, so tell the user explicitly.
+            if (
+              payload.startsWith("Claude stdout read error:") &&
+              !useClaudeChatStore.getState().error
+            ) {
+              useClaudeChatStore
+                .getState()
+                ._setError(
+                  `${payload} — output stream lost. The session may be stuck; you can cancel and retry.`,
+                );
+            }
           }
         },
       );
